@@ -48,7 +48,7 @@ def run(args, data):
     models.ae.compile(optimizer=optimizer, loss=losses, metrics=metrics)
 
     # TODO specify callbacks
-    cbs = [callbacks.ImageDisplayCallback(x_train, x_test, args, models, sampler), callbacks.FlushCallback()]
+    cbs = [callbacks.ImageDisplayCallback(x_train, x_test, args, models, sampler), callbacks.FlushCallback(), callbacks.LatentPositionCallback(x_train, x_test, args, models, sampler)]
 
     # train the autoencoder
     models.ae.fit(x_train, x_train,

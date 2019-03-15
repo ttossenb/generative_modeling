@@ -46,6 +46,24 @@ class FlushCallback(Callback):
         sys.stdout.flush()
 
 
+class LatentPositionCallback(Callback):
+    def __init__(self,
+                 x_train, x_test, args,
+                 modelDict, sampler,
+                 **kwargs):
+        self.x_train = x_train
+        self.x_test = x_test
+        self.args = args
+        self.modelDict = modelDict
+        self.randomPoints = sampler(args.batch_size, args.latent_dim)
+        super(LatentPositionCallback, self).__init__(**kwargs)
+
+    def on_epoch_end(self, epoch, logs):
+        currentLatentPositions=self.modelDict.encoder.predict(self.x_train[:50])
+        print(currentLatentPositions)
+
+
+
 # def get_lr_scheduler(nb_epoch, base_lr, lr_decay_schedule):
 #     assert lr_decay_schedule == sorted(lr_decay_schedule), "lr_decay_schedule has to be monotonically increasing!"
 
