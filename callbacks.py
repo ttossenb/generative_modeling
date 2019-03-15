@@ -59,9 +59,9 @@ class LatentPositionCallback(Callback):
         super(LatentPositionCallback, self).__init__(**kwargs)
 
     def on_epoch_end(self, epoch, logs):
-        currentLatentPositions=self.modelDict.encoder.predict(self.x_train[:50])
+        bs = self.args.batch_size
+        currentLatentPositions=self.modelDict.encoder.predict(self.x_train[:bs], batch_size=bs)
         print(currentLatentPositions)
-
 
 
 # def get_lr_scheduler(nb_epoch, base_lr, lr_decay_schedule):
