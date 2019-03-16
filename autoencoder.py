@@ -3,6 +3,8 @@ from keras.models import Sequential
 from keras.layers import Dense, Activation, Reshape, Input, Lambda
 from keras import backend as K
 from keras.models import Model
+import numpy as np
+import matplotlib.pyplot as plt
 
 from util import *
 import model_IO
@@ -44,11 +46,17 @@ def run(args, data):
     else:
         assert False, "Unknown optimizer %s" % args.optimizer
 
+
+    # setting up variables for measuring the latent movements
+    previousLatentPositions = np.repeat(0, args.batch_size * args.latent_dim).reshape(args.batch_size, args.latent_dim)
+    latentMovements = []
+
     # compile autoencoder
     models.ae.compile(optimizer=optimizer, loss=losses, metrics=metrics)
 
     # TODO specify callbacks
-    cbs = [callbacks.ImageDisplayCallback(x_train, x_test, args, models, sampler), callbacks.FlushCallback(), callbacks.LatentPositionCallback(x_train, x_test, args, models, sampler)]
+    cbs = [callbacks.ImageDisplayCallback(x_train, x_test, args, models, sampler), callbacks.FlushCallback(),
+           callbacks.LatentPositionCallback(x_train, x_test, args, models, sampler, previousLatentPositions, latentMovements)]
 
     # train the autoencoder
     models.ae.fit(x_train, x_train,
@@ -62,6 +70,16 @@ def run(args, data):
     
     # save models
     model_IO.save_autoencoder(models, args)
+
+    # save the latent movements
+    outputFile = open("latent_movements.npy", "wb")
+    arrangedLatentMovements = np.transpose(np.array(latentMovements[1:]))
+    np.save(outputFile, arrangedLatentMovements)
+    outputFile.close()
+
+    # plot the average latent movements
+    plt.plot(np.mean(arrangedLatentMovements, axis=0))
+    plt.savefig("pictures/mean_latent_movements.png")
 
     # display randomly generated images
     # vis.displayRandom((10, 10), args, models, sampler, "{}/random".format(args.outdir))
