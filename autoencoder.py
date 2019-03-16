@@ -46,17 +46,14 @@ def run(args, data):
     else:
         assert False, "Unknown optimizer %s" % args.optimizer
 
-
-    # setting up variables for measuring the latent movements
-    previousLatentPositions = np.repeat(0, args.batch_size * args.latent_dim).reshape(args.batch_size, args.latent_dim)
-    latentMovements = []
-
     # compile autoencoder
     models.ae.compile(optimizer=optimizer, loss=losses, metrics=metrics)
 
+    positionCollector = callbacks.LatentPositionCallback(x_train, x_test, args, models, sampler)
+
     # TODO specify callbacks
     cbs = [callbacks.ImageDisplayCallback(x_train, x_test, args, models, sampler), callbacks.FlushCallback(),
-           callbacks.LatentPositionCallback(x_train, x_test, args, models, sampler, previousLatentPositions, latentMovements)]
+           positionCollector]
 
     # train the autoencoder
     models.ae.fit(x_train, x_train,
@@ -67,19 +64,31 @@ def run(args, data):
                   callbacks = cbs,
                   validation_data=(x_test, x_test)
     )
-    
+
     # save models
     model_IO.save_autoencoder(models, args)
 
     # save the latent movements
     outputFile = open("latent_movements.npy", "wb")
-    arrangedLatentMovements = np.transpose(np.array(latentMovements[1:]))
+    arrangedLatentMovements = np.transpose(np.array(positionCollector.latentMovements[1:]))
     np.save(outputFile, arrangedLatentMovements)
     outputFile.close()
 
     # plot the average latent movements
     plt.plot(np.mean(arrangedLatentMovements, axis=0))
     plt.savefig("pictures/mean_latent_movements.png")
+    plt.close()
+
+    latentPositions = np.array(positionCollector.latentPositions)
+    from sklearn.decomposition import PCA
+    polyline = latentPositions[:, 0, :]
+    pca = PCA(n_components=2)
+    reduced = pca.fit_transform(polyline)
+    print("evr", pca.explained_variance_ratio_)
+    plt.plot(reduced[:, 0], reduced[:, 1])
+    plt.savefig("pictures/polyline.png")
+    plt.close()
+
 
     # display randomly generated images
     # vis.displayRandom((10, 10), args, models, sampler, "{}/random".format(args.outdir))
