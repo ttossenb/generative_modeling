@@ -37,8 +37,8 @@ def updateBipartiteGraph(dirties, latentPositions, invertHash, bipartite, annoyI
         newNeighbors = {closeNatIndex + n for closeNatIndex in closeIndices}
         if oldNeighbors is not None:
             inters = len(newNeighbors.intersection(oldNeighbors))
-            jaccard = inters / (2 * len(oldNeighbors) - inters)
-            totalChange += jaccard
+            jaccardDistance = 1 - inters / (2 * len(oldNeighbors) - inters)
+            totalChange += jaccardDistance
             changed += 1
         for j in range(len(closeIndices)):
             closeNatIndex = closeIndices[j]
@@ -81,8 +81,7 @@ def run(args, data):
     # compile autoencoder
     models.ae.compile(optimizer=optimizer, loss=losses, metrics=metrics)
 
-    # TODO lost callbacks with switch to train_on_batch
-    cbs = [callbacks.ImageDisplayCallback(x_train, x_test, args, models, sampler), callbacks.FlushCallback()]
+    imageDisplayCallback = callbacks.ImageDisplayCallback(x_train, x_test, args, models, sampler)
 
     iters_in_epoch = x_train.shape[0] // args.batch_size
     latentPositions = {}
@@ -102,10 +101,10 @@ def run(args, data):
         np.random.shuffle(x_train)
 
         for i in range(iters_in_epoch):
-            x_batch = x_train[i*args.batch_size:(i+1)*args.batch_size]
+            bs = args.batch_size
+            x_batch = x_train[i * bs: (i + 1) * bs]
             res = models.ae.train_on_batch(x_batch, x_batch)
 
-            bs = args.batch_size
             currentLatentPositions = models.encoder.predict(x_batch, batch_size=bs)
             if args.sampling:
                 currentLatentPositions = currentLatentPositions[1] # z_mean!
@@ -120,15 +119,13 @@ def run(args, data):
                 latentPositions[h] = latent
             updateBipartiteGraph(dirties, latentPositions, invertHash, bipartite, annoyIndex)
 
-        if i % args.frequency == 0:
-            print('epoch: {:03d}/{:03d}, iters: {:03d}/{:03d}'.format(epoch, args.nb_epoch, i, iters_in_epoch), end='')
-            for (key, value) in zip(models.ae.metrics_names, res):
-                print(", ", key, ": ",value, end='')
-            print("\n", end='')
+        print('epoch: {:03d}/{:03d}, iters: {:03d}/{:03d}'.format(epoch, args.nb_epoch, i, iters_in_epoch), end='')
+        for (key, value) in zip(models.ae.metrics_names, res):
+            print(", ", key, ": ",value, end='')
+        print("\n", end='')
 
-            (z, z_mean, z_variance) = models.encoder.predict(x_batch, batch_size=args.batch_size)
-            print(z.shape)
-            print(z)
+        if i % args.frequency == 0:
+            imageDisplayCallback.on_epoch_end(epoch, logs=None)
 
     # save models
     model_IO.save_autoencoder(models, args)
