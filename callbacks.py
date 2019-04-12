@@ -55,20 +55,19 @@ class LatentPositionCallback(Callback):
         self.x_test = x_test
         self.args = args
         self.modelDict = modelDict
-        self.randomPoints = sampler(args.batch_size, args.latent_dim)
-        self.latentPositions = []
-        self.latentMovements = []
+        self.latentPositions = {}
         super(LatentPositionCallback, self).__init__(**kwargs)
 
     def on_batch_end(self, batch, logs):
+        print(type(batch))
+        print(batch.shape)
         bs = self.args.batch_size
-        currentLatentPositions = self.modelDict.encoder.predict(self.x_train[:bs], batch_size=bs)
+        currentLatentPositions = self.modelDict.encoder.predict(batch, batch_size=bs)
         if self.args.sampling:
             currentLatentPositions = currentLatentPositions[1] # z_mean!
-        self.latentPositions.append(currentLatentPositions)
-        if len(self.latentPositions) > 0:
-            currentLatentMovements = np.linalg.norm(currentLatentPositions - self.latentPositions[-1], axis=1)
-            self.latentMovements.append(currentLatentMovements)
+        for sample, latent in zip(batch, currentLatentPositions):
+            self.latentPositions[hash(sample)] = latent
+        print(len(self.latentPositions))
 
 
 # def get_lr_scheduler(nb_epoch, base_lr, lr_decay_schedule):

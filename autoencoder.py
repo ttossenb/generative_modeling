@@ -5,6 +5,7 @@ from keras import backend as K
 from keras.models import Model
 import numpy as np
 import matplotlib.pyplot as plt
+import sys
 
 from util import *
 import model_IO
@@ -15,6 +16,37 @@ import callbacks
 
 from networks import dense, conv
 
+import NAT_graph
+
+
+# TODO refactor move to its own py
+def updateBipartiteGraph(dirties, latentPositions, invertHash, bipartite, annoyIndex):
+    n_nbrs = 10
+    n = len(invertHash)
+    totalChange = 0.0
+    changed = 0
+    for h in dirties:
+        i, sample = invertHash[h]
+        latent = latentPositions[h]
+        closeIndices, closeDistances = annoyIndex.get_nns_by_vector(latent, n_nbrs, include_distances=True)
+        oldNeighbors = None
+        if i in bipartite:
+            oldNeighbors = set(bipartite.neighbors(i))
+            bipartite.remove_node(i)
+        bipartite.add_node(i, bipartite=0)
+        newNeighbors = {closeNatIndex + n for closeNatIndex in closeIndices}
+        if oldNeighbors is not None:
+            inters = len(newNeighbors.intersection(oldNeighbors))
+            jaccard = inters / (2 * len(oldNeighbors) - inters)
+            totalChange += jaccard
+            changed += 1
+        for j in range(len(closeIndices)):
+            closeNatIndex = closeIndices[j]
+            dist = closeDistances[j]
+            bipartite.add_edge(i, closeNatIndex + n, weight=dist)
+    print("Average change", totalChange / (changed+0.01), changed, len(latentPositions))
+    sys.stdout.flush()
+
 
 def run(args, data):
     (x_train, x_test) = data
@@ -24,7 +56,7 @@ def run(args, data):
 
     models, loss_features = build_models(args)
     assert set(("ae", "encoder", "generator")) <= set(models.keys()), models.keys()
-    
+
     print("Encoder architecture:")
     print_model(models.encoder)
     print("Generator architecture:")
@@ -49,21 +81,54 @@ def run(args, data):
     # compile autoencoder
     models.ae.compile(optimizer=optimizer, loss=losses, metrics=metrics)
 
-    positionCollector = callbacks.LatentPositionCallback(x_train, x_test, args, models, sampler)
+    # TODO lost callbacks with switch to train_on_batch
+    cbs = [callbacks.ImageDisplayCallback(x_train, x_test, args, models, sampler), callbacks.FlushCallback()]
 
-    # TODO specify callbacks
-    cbs = [callbacks.ImageDisplayCallback(x_train, x_test, args, models, sampler), callbacks.FlushCallback(),
-           positionCollector]
+    iters_in_epoch = x_train.shape[0] // args.batch_size
+    latentPositions = {}
+    movements = []
 
-    # train the autoencoder
-    models.ae.fit(x_train, x_train,
-                  verbose=args.verbose,
-                  shuffle=True,
-                  epochs=args.nb_epoch,
-                  batch_size=args.batch_size,
-                  callbacks = cbs,
-                  validation_data=(x_test, x_test)
-    )
+    invertHash = {}
+    for i, sample in enumerate(x_train):
+        h = hash(tuple(sample.flatten()))
+        invertHash[h] = (i, sample)
+
+    n = len(x_train)
+    print("creating bipartite graph and annoy index.")
+    natPositions, bipartite, annoyIndex = NAT_graph.buildServers(n, args.latent_dim)
+    print("done.")
+
+    for epoch in range(args.nb_epoch):
+        np.random.shuffle(x_train)
+
+        for i in range(iters_in_epoch):
+            x_batch = x_train[i*args.batch_size:(i+1)*args.batch_size]
+            res = models.ae.train_on_batch(x_batch, x_batch)
+
+            bs = args.batch_size
+            currentLatentPositions = models.encoder.predict(x_batch, batch_size=bs)
+            if args.sampling:
+                currentLatentPositions = currentLatentPositions[1] # z_mean!
+            dirties = set()
+            for sample, latent in zip(x_batch, currentLatentPositions):
+                h = hash(tuple(sample.flatten()))
+                dirties.add(h)
+                if h in latentPositions:
+                    movements.append(np.linalg.norm(latentPositions[h] - latent))
+                    if len(movements) > 1000:
+                        movements = movements[-1000:]
+                latentPositions[h] = latent
+            updateBipartiteGraph(dirties, latentPositions, invertHash, bipartite, annoyIndex)
+
+        if i % args.frequency == 0:
+            print('epoch: {:03d}/{:03d}, iters: {:03d}/{:03d}'.format(epoch, args.nb_epoch, i, iters_in_epoch), end='')
+            for (key, value) in zip(models.ae.metrics_names, res):
+                print(", ", key, ": ",value, end='')
+            print("\n", end='')
+
+            (z, z_mean, z_variance) = models.encoder.predict(x_batch, batch_size=args.batch_size)
+            print(z.shape)
+            print(z)
 
     # save models
     model_IO.save_autoencoder(models, args)
