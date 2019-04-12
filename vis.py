@@ -32,7 +32,13 @@ def displayRandom(shape, args, models, sampler, name):
 
 # display one batch of reconstructed images
 def displayReconstructed(imageBatch, args, models, name):
-    recons = models.ae.predict(imageBatch, batch_size=args.batch_size)
+    # deals with the case when an ae model has two inputs, x and z_NaT.
+    assert len(models.ae.inputs) in (1, 2)
+    if len(models.ae.inputs) == 2:
+        natBatch = np.zeros((args.batch_size, args.latent_dim))
+        recons = models.ae.predict([imageBatch, natBatch], batch_size=args.batch_size)
+    else:
+        recons = models.ae.predict(imageBatch, batch_size=args.batch_size)
     mergedSet = mergeSets([imageBatch, recons])
     plotImages(mergedSet, 10, 2*args.batch_size // 10, name)
 

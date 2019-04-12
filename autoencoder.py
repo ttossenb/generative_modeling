@@ -44,8 +44,18 @@ def updateBipartiteGraph(dirties, latentPositions, invertHash, bipartite, annoyI
             closeNatIndex = closeIndices[j]
             dist = closeDistances[j]
             bipartite.add_edge(i, closeNatIndex + n, weight=dist)
-    print("Average change", totalChange / (changed+0.01), changed, len(latentPositions))
-    sys.stdout.flush()
+    # print("Average change", totalChange / (changed+0.01), changed, len(latentPositions))
+    # sys.stdout.flush()
+
+
+# TO BE CONTINUED
+def lookupNearestNaTs(indices, annoyIndex):
+    closeIndices, closeDistances = annoyIndex.get_nns_by_vector(latent, n_nbrs, include_distances=True)
+    return natIndices
+
+
+def hashSample(sample):
+    return hash(tuple(sample.flatten()))
 
 
 def run(args, data):
@@ -89,7 +99,7 @@ def run(args, data):
 
     invertHash = {}
     for i, sample in enumerate(x_train):
-        h = hash(tuple(sample.flatten()))
+        h = hashSample(sample)
         invertHash[h] = (i, sample)
 
     n = len(x_train)
@@ -103,14 +113,26 @@ def run(args, data):
         for i in range(iters_in_epoch):
             bs = args.batch_size
             x_batch = x_train[i * bs: (i + 1) * bs]
-            res = models.ae.train_on_batch(x_batch, x_batch)
 
-            currentLatentPositions = models.encoder.predict(x_batch, batch_size=bs)
+            # TODO that's a quite roundabout way of doing it:
+            indices = []
+            for sample in x_batch:
+                indx, _ = invertHash[hashSample(sample)]
+                indices.append(indx)
+
+            # TO BE CONTINUED
+            # natIndices = lookupNearestNaTs(indices, latentPositions, annoyIndex)
+            # nat_batch = natPositions[natIndices]
+            nat_batch = np.zeros((args.batch_size, args.latent_dim))
+
+            res = models.ae.train_on_batch([x_batch, nat_batch], x_batch)
+
+            currentLatentPositions = models.encoder.predict([x_batch], batch_size=bs)
             if args.sampling:
                 currentLatentPositions = currentLatentPositions[1] # z_mean!
             dirties = set()
             for sample, latent in zip(x_batch, currentLatentPositions):
-                h = hash(tuple(sample.flatten()))
+                h = hashSample(sample)
                 dirties.add(h)
                 if h in latentPositions:
                     movements.append(np.linalg.norm(latentPositions[h] - latent))
@@ -174,14 +196,16 @@ def build_models(args):
         sampler_model = add_gaussian_sampling(encoder_output_shape, args)
 
         inputs = Input(shape=args.original_shape)
+        nats = Input(shape=(args.latent_dim, ))
         hidden = encoder(inputs)
         (z, z_mean, z_log_var) = sampler_model(hidden)
         encoder = Model(inputs, [z, z_mean, z_log_var])
-        
+
         loss_features["z_mean"] = z_mean
         loss_features["z_log_var"] = z_log_var
+        loss_features["z_nat"] = nats
         output = generator(z)
-        ae = Model(inputs, output)
+        ae = Model([inputs, nats], output)
     else:
         ae = Sequential([encoder, generator])
 
