@@ -130,44 +130,6 @@ def run(args, data):
     # save models
     model_IO.save_autoencoder(models, args)
 
-    # save the latent movements
-    outputFile = open("latent_movements.npy", "wb")
-    arrangedLatentMovements = np.transpose(np.array(positionCollector.latentMovements[1:]))
-    np.save(outputFile, arrangedLatentMovements)
-    outputFile.close()
-
-    # plot the average latent movements
-    plt.plot(np.mean(arrangedLatentMovements, axis=0))
-    plt.savefig("pictures/mean_latent_movements.png")
-    plt.close()
-
-    latentPositions = np.array(positionCollector.latentPositions)
-    from sklearn.decomposition import PCA
-    polyline = latentPositions[:, 0, :]
-    pca = PCA(n_components=2)
-    reduced = pca.fit_transform(polyline)
-    print("evr", pca.explained_variance_ratio_)
-    plt.plot(reduced[:, 0], reduced[:, 1])
-    plt.savefig("pictures/polyline.png")
-    plt.close()
-
-
-    # display randomly generated images
-    # vis.displayRandom((10, 10), args, models, sampler, "{}/random".format(args.outdir))
-
-    # display one batch of reconstructed images
-    # vis.displayReconstructed(x_train[:args.batch_size], args, models, "{}/train".format(args.outdir))
-    # vis.displayReconstructed(x_test[:args.batch_size], args, models, "{}/test".format(args.outdir))
-
-
-    # # display image interpolation
-    # vis.displayInterp(x_train, x_test, args.batch_size, args.latent_dim, encoder, encoder_var, args.sampling, generator, 10, "%s-interp" % args.prefix,
-    #                   anchor_indices = data_object.anchor_indices, toroidal=args.toroidal)
-
-    # vis.plotMVhist(x_train, encoder, args.batch_size, "{}-mvhist.png".format(args.prefix))
-    # vis.plotMVVM(x_train, encoder, encoder_var, args.batch_size, "{}-mvvm.png".format(args.prefix))
-
-
 
 def build_models(args):
     loss_features = AttrDict({})
