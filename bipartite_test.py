@@ -33,8 +33,9 @@ def main():
     n = 100
     d = 10
 
+    np.random.seed(1)
     clients = np.random.normal(size=(n, d))
-    servers = np.random.normal(size=(n, d)) + 2
+    servers = np.random.normal(size=(n, d)) + 1
     distances = np.sqrt(pairwiseSquaredDistances(clients, servers))
     G = nx.Graph()
     for i in range(n):
@@ -42,7 +43,7 @@ def main():
         G.add_node(n + i, bipartite=1)
     mode = "sparse"
     if mode == "sparse":
-        k = 50
+        k = 20
         for i in range(n):
             neighbors = np.argsort(distances[i, :])[:k]
             for j in neighbors:
@@ -50,6 +51,12 @@ def main():
     elif mode == "dense":
         for i in range(n):
             for j in range(n):
+                G.add_edge(i, n+j, weight=-distances[i, j])
+    elif mode == "random":
+        k = 10
+        for i in range(n):
+            randoms = np.random.choice(n, k)
+            for j in randoms:
                 G.add_edge(i, n+j, weight=-distances[i, j])
     elif mode == "mixed":
         k = 10
@@ -67,6 +74,7 @@ def main():
     ax = fig.add_subplot(111)
     ax.scatter(clients[:, 0], clients[:, 1], c='red')
     ax.scatter(servers[:, 0], servers[:, 1], c='blue')
+    totalDistance = 0.0
     for a, b in matching:
         if a >= n:
             b, a = a, b
@@ -76,6 +84,8 @@ def main():
         ys = [clients[client, 1], servers[server, 1]]
         l = Line2D(xs, ys)
         ax.add_line(l)
+        totalDistance += distances[client, server]
+    print(totalDistance)
 
     plt.savefig(sys.argv[1])
 
