@@ -25,13 +25,15 @@ if keras.backend._BACKEND == "tensorflow":
 
 # load data
 data_object = data.load(args.dataset, shape=args.shape, color=args.color)
-(x_train, x_test) = data_object.get_data(args.trainSize, args.testSize)
+#(x_train, x_test) = data_object.get_data(args.trainSize, args.testSize)
+((x_train, y_train), (x_test, y_test)) = data_object.get_data(args.trainSize, args.testSize)
 args.original_shape = x_train.shape[1:]
 args.original_size = np.prod(args.original_shape)
 
 
 if args.model_type == "autoencoder":
-    autoencoder.run(args, (x_train, x_test))
+    #autoencoder.run(args, (x_train, x_test))
+    autoencoder.run(args, ((x_train, y_train), (x_test, y_test)))
 elif args.model_type in ("gan", "wgan","wgan-gp"):
     gan.run(args, (x_train, x_test))
 else:
