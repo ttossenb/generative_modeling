@@ -3,10 +3,9 @@ import networkx as nx
 from sortedcontainers import SortedSet
 import numpy as np
 
-
 G = nx.Graph() #<----TODO input from NAT_graph, placeholder atm
-max_level = 485 #int: sqrt(n)*sqrt(log(n))
-source_node = 0 #int: index of the source node
+max_level = 735 #int: sqrt(n)*sqrt(log(n))
+source_node = -1 #int: index of the source node
 #M = nx.DiGraph() #matching, directed from C to S
 #n = 50000
 
@@ -34,7 +33,7 @@ def deleteEdge(H, u, v, max_level):
     readjustGraph(H, affected_nodes, max_level)
 
 
-def addOneClient(H, c, source_node, max_level):
+def addOneClient(G, H, c, source_node, max_level):
     for s in G.neighbors(c):
         H.add_edge(s, c)
     deleteEdge(H, source_node, c, max_level)
@@ -69,9 +68,9 @@ def applyPath(H, M, path, max_level, source_node):
     deleteEdge(H, source_node, path[0], max_level)
 
 
-def addClients(clients_to_add, H, M, source_node, max_level):
+def addClients(G, clients_to_add, H, M, source_node, max_level):
     for c in clients_to_add:
-        addOneClient(H, c, source_node, max_level)
+        addOneClient(G, H, c, source_node, max_level)
         path = findSAP(H, c, source_node)
         applyPath(H, M, path, max_level, source_node)
 
@@ -131,11 +130,11 @@ M = nx.DiGraph()
 
 #add all the clients 1 by 1 while maintaining the ES structure
 clients_to_add = client_nodes
-addClients(clients_to_add, H, M, source_node, max_level)
+addClients(G, clients_to_add, H, M, source_node, max_level)
 
 #add (a batch of) clients
 clients_to_add=... #Todo from network
-addClients(clients_to_add, H, M, source_node, max_level)
+addClients(G, clients_to_add, H, M, source_node, max_level)
 
 #delete (a batch of) clients
 clients_to_delete=... #Todo from network

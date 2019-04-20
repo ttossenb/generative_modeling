@@ -4,11 +4,12 @@ from networkx.algorithms import bipartite
 from scipy.sparse import coo_matrix
 from annoy import AnnoyIndex
 import time
+from sortedcontainers import SortedSet
+import directed_ES as ES
+from math import sqrt, log, floor
 
 
 def normalize(a, order=2, axis=-1):
-    #print(a[a == np.zeros(a[0].shape)])
-    #a[a == np.zeros(a[0].shape)] = np.ones(a[0].shape)
     a_norms = np.expand_dims(np.linalg.norm(a, order, axis), axis)
     return a / a_norms
 
@@ -37,20 +38,20 @@ def buildServers(n, d):
     return targetPoints, B, targetIndex
 
 
-def main():
-    #number of traing inputs
-    n = 50000
-    #latent dimension
-    d = 10
-    #number of trees in the LSH-forest
-    n_trees = 60
-    #number of closest neighbourers to check
-    n_nbrs = 10
+def createGraph(n, d, n_trees, n_nbrs):
+    #n = number of traing inputs
+    #n = 50000
+    #d = latent dimension
+    #d = 10
+    #n_trees = number of trees in the LSH-forest
+    #n_trees = 60
+    #n_nbrs = number of closest neighbourers to check
+    #n_nbrs = 10
 
     #number of points to put in each space segment
     k = n // (2 ** d)
 
-    start1 = time.clock()
+    #start1 = time.clock()
 
     #generating target points, normalizing them, taking the absolute value of each
     targetPoints = np.absolute(normalize(np.random.normal(0, 1, (2 ** d, k, d))))
@@ -77,8 +78,8 @@ def main():
     loadedIndex = AnnoyIndex(d)
     loadedIndex.load("LSHForest.ann")
 
-    end1 = time.clock()
-    start2 = time.clock()
+    #end1 = time.clock()
+    #start2 = time.clock()
 
     #find the closest neighbours for each latent point and their distances,
     #and also create the biadjacency sparse matrix of the desired bipartite graph
@@ -93,8 +94,8 @@ def main():
         closeIndices[i] = np.array(tempTuple[0])
         closeDistances[i] = np.array(tempTuple[1])
 
-    end2 = time.clock()
-    start3 = time.clock()
+    #end2 = time.clock()
+    #start3 = time.clock()
 
     #create the biadjacency matrix
     #arg1=data=(data, (rows, cols))
@@ -103,14 +104,85 @@ def main():
     #create the bipartite graph in networkx
     G = bipartite.from_biadjacency_matrix(B)
 
-    top_nodes = {n for n, d in G.nodes(data=True) if d['bipartite']==0}
-    bottom_nodes = set(G) - top_nodes
+    client_nodes = SortedSet({n for n, d in G.nodes(data=True) if d['bipartite']==0}) #0 .. n-1
+    server_nodes = SortedSet(set(G) - client_nodes)
 
-    end3 = time.clock()
+    #end3 = time.clock()
 
-    print("Elapsed time during the initialization of the targets: ", end1-start1)
-    print("Elapsed time during the initialization of the LSH-forest: ", end2-start2)
-    print("Elapsed time during the creation of the bipartite graph: ", end3-start3)
+    #print("Elapsed time during the initialization of the targets: ", end1-start1)
+    #print("Elapsed time during the initialization of the LSH-forest: ", end2-start2)
+    #print("Elapsed time during the creation of the bipartite graph: ", end3-start3)
+
+    return G, client_nodes, server_nodes, loadedIndex
+
+
+def createESGraph(G, H, M, client_nodes, server_nodes, max_level, source_node=-1):
+    #H = directed ES graph
+    n = len(client_nodes)
+
+    H.add_node(source_node, level=0)
+    H.add_nodes_from(client_nodes, level=1)
+
+    #connect the source node to the server nodes
+    for s in server_nodes:
+        H.add_edge(source_node, s)
+        H.nodes(s)['witnesses'] = SortedSet()
+        H.nodes(s)['witnesses'].add(source_node)
+
+    #connect the source node to the client nodes
+    for c in client_nodes:
+        H.add_edge(source_node, c)
+        H.nodes(c)['witnesses'] = SortedSet()
+        H.nodes(c)['witnesses'].add(source_node)
+
+    #add all the clients 1 by 1 while maintaining the ES structure
+    #also modify M to be a maximal matching
+    clients_to_add = client_nodes
+    ES.addClients(G, clients_to_add, H, M, source_node, max_level)
+
+
+def deleteBatchOfClients(clients_to_delete, H, M, max_level, source_node=-1):
+    #clients_to_delete = sorted set of the indices of the batch elements to delete
+    ES.deleteClients(clients_to_delete, H, M, source_node, max_level)
+
+
+def updateBatch(G, n, annoy_index, batch_indices, latentBatch, H, M, max_level, n_nbrs, source_node=-1):
+    #latentBatch=latentPoints["batch_indices as np.array"] (must be sorted)
+    #delete the nodes (and the edges from these nodes)
+    deleteBatchOfClients(batch_indices, H, M, max_level)
+    G.delete_nodes_from(batch_indices)
+    #add back the nodes
+    G.add_nodes_from(batch_indices)
+    #initialize closeIndices and closeDistances
+    closeIndices = np.zeros((latentBatch.shape[0], n_nbrs), dtype=int)
+    closeDistances = np.zeros((latentBatch.shape[0], n_nbrs), dtype=np.float16)
+    #add new weighted edges to G
+    for i in range(len(batch_indices)):
+        (closeIndices[i], closeDistances[i]) = annoy_index.get_nns_by_vector(latentBatch[i], n_nbrs, include_distances=True)
+        for j in range(n_nbrs):
+            G.add_edge(closeIndices[i][j] + n, batch_indices[i], weight=closeDistances[i][j])
+    ES.addClients(G, batch_indices, H, M, source_node, max_level)
+
+
+def main():
+    #---before training---
+    (G, client_nodes, server_nodes, annoy_index) = createGraph(n=50000, d=10, n_trees=60, n_nbrs=10)
+
+    n = 50000
+    max_level = floor(sqrt(n) * sqrt(log(n))) #=735 for n=50000
+
+    #initialize H before the clients are being added iteratively
+    H = nx.DiGraph()
+    #initialize M digraph of the matching directed from C to S
+    M = nx.DiGraph()
+
+    createESGraph(G, H, M, client_nodes, server_nodes, max_level)
+
+    #---after training each batch---
+    batch_indices = SortedSet(range(0, 200)) #placeholder
+    #latentBatch=...
+    updateBatch(G, n, annoy_index, batch_indices, latentBatch, H, M, max_level, n_nbrs=10)
+    #Todo modify the loss function with M
 
 
 if __name__ == "__main__":
