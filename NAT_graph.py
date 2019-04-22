@@ -118,22 +118,23 @@ def createGraph(n, d, n_trees, n_nbrs):
 
 def createESGraph(G, H, M, client_nodes, server_nodes, max_level, source_node=-1):
     #H = directed ES graph
-    n = len(client_nodes)
+    #n = len(client_nodes)
 
     H.add_node(source_node, level=0)
     H.add_nodes_from(client_nodes, level=1)
+    H.add_nodes_from(server_nodes, level=1)
 
     #connect the source node to the server nodes
     for s in server_nodes:
         H.add_edge(source_node, s)
-        H.nodes(s)['witnesses'] = SortedSet()
-        H.nodes(s)['witnesses'].add(source_node)
+        H.nodes[s]['witnesses'] = SortedSet()
+        H.nodes[s]['witnesses'].add(source_node)
 
     #connect the source node to the client nodes
     for c in client_nodes:
         H.add_edge(source_node, c)
-        H.nodes(c)['witnesses'] = SortedSet()
-        H.nodes(c)['witnesses'].add(source_node)
+        H.nodes[c]['witnesses'] = SortedSet()
+        H.nodes[c]['witnesses'].add(source_node)
 
     #add all the clients 1 by 1 while maintaining the ES structure
     #also modify M to be a maximal matching
@@ -165,8 +166,11 @@ def updateBatch(G, n, annoy_index, batch_indices, latentBatch, H, M, max_level, 
 
 
 def main():
+    start1 = time.clock()
     #---before training---
     (G, client_nodes, server_nodes, annoy_index) = createGraph(n=50000, d=10, n_trees=60, n_nbrs=10)
+    end1 = time.clock()
+    print('Created G bipartate graph. Elapsed time: ', end1 - start1)
 
     n = 50000
     max_level = floor(sqrt(n) * sqrt(log(n))) #=735 for n=50000
@@ -176,12 +180,18 @@ def main():
     #initialize M digraph of the matching directed from C to S
     M = nx.DiGraph()
 
+    start2 = time.clock()
     createESGraph(G, H, M, client_nodes, server_nodes, max_level)
+    end2 = time.clock()
+    print('Created the initial ES graph. Elapsed time: ', end2 - start2)
 
     #---after training each batch---
+    start3 = time.clock()
     batch_indices = SortedSet(range(0, 200)) #placeholder
-    #latentBatch=...
+    latentBatch = normalize(np.random.normal(0, 1, size=(200, 10))) #placeholder
     updateBatch(G, n, annoy_index, batch_indices, latentBatch, H, M, max_level, n_nbrs=10)
+    end3 = time.clock()
+    print('Modified on one batch. Elapsed time: ', end3 - start3)
     #Todo modify the loss function with M
 
 
