@@ -48,6 +48,7 @@ def deleteEdge(H, u, v, max_level):
 
 
 def addOneClient(G, H, c, source_node, max_level):
+    if c % 1000 == 0: print(c)
     for s in G.neighbors(c):
         H.add_edge(s, c)
         #print('added: ', s, ', ', c)
@@ -56,6 +57,7 @@ def addOneClient(G, H, c, source_node, max_level):
 
 def findSAP(H, c, source_node):
     if len(H.nodes[c]['witnesses']) > 0: #exists a SAP to c with length <= max_level
+        found_short_path = True
         p = c
         lvl = H.nodes[c]['level']
         path = np.zeros((lvl, ), dtype=int)
@@ -64,28 +66,32 @@ def findSAP(H, c, source_node):
             p = H.nodes[p]['witnesses'][0] #could take any of the witnesses!!!
             path[i] = p
             #P.add_edge(H.nodes[p]['witnesses'][0], p)
-    else: #have to find a SAP with BFS
-        path = np.array(nx.algorithms.shortest_path(H, source_node, c, weight=None))[1:] #array of consecutive path-nodes
-        #for i in range(len(path) - 1):
-        #    P.add_edge(path[i], path[i+1])
-    return path
+#    else: #have to find a SAP with BFS
+#        path = np.array(nx.algorithms.shortest_path(H, source_node, c, weight=None))[1:] #array of consecutive path-nodes
+#        #for i in range(len(path) - 1):
+#        #    P.add_edge(path[i], path[i+1])
+    else:
+        found_short_path = False
+        path = np.array([])
+    return path, found_short_path
 
 
-def applyPath(H, M, path, max_level, source_node):
-    path_length = len(path) - 1
-    for i in range(path_length, 1, -2): #path_length .. 3, since path_length is odd
-        M.add_edge(path[i], path[i-1])
-        #print('added matching edge: ', path[i], ', ', path[i-1])
-        M.remove_edge(path[i-2], path[i-1])
-        #print('removed matching edge: ', path[i-2], ', ', path[i-1])
-    M.add_edge(path[1], path[0])
+def applyPath(H, M, path, max_level, found_short_path, source_node):
+    if found_short_path:
+        path_length = len(path) - 1
+        for i in range(path_length, 1, -2): #path_length .. 3, since path_length is odd
+            M.add_edge(path[i], path[i-1])
+            #print('added matching edge: ', path[i], ', ', path[i-1])
+            M.remove_edge(path[i-2], path[i-1])
+            #print('removed matching edge: ', path[i-2], ', ', path[i-1])
+        M.add_edge(path[1], path[0])
 
-    for i in range(path_length, 0, -1): #path_length .. 1
-        H.add_edge(path[i], path[i-1])
-        #print('added reversed path edge: ', path[i], ', ', path[i-1])
-        deleteEdge(H, path[i-1], path[i], max_level)
-        #print('removed path edge: ', path[i-1], ', ', path[i])
-    deleteEdge(H, source_node, path[0], max_level)
+        for i in range(path_length, 0, -1): #path_length .. 1
+            H.add_edge(path[i], path[i-1])
+            #print('added reversed path edge: ', path[i], ', ', path[i-1])
+            deleteEdge(H, path[i-1], path[i], max_level)
+            #print('removed path edge: ', path[i-1], ', ', path[i])
+        deleteEdge(H, source_node, path[0], max_level)
 
 
 def addClients(G, clients_to_add, H, M, source_node, max_level):
@@ -93,22 +99,22 @@ def addClients(G, clients_to_add, H, M, source_node, max_level):
         #print('client to add: ', c)
         addOneClient(G, H, c, source_node, max_level)
         #print('added client: ', c)
-        path = findSAP(H, c, source_node)
+        (path, found_short_path) = findSAP(H, c, source_node)
         #print('found alternating path: ', path)
         #print('applying path')
-        applyPath(H, M, path, max_level, source_node)
+        applyPath(H, M, path, max_level, found_short_path, source_node)
         #print('applied path')
 
 
 def deleteClients(clients_to_delete, H, M, source_node, max_level):
     for c in clients_to_delete:
-        for s in H.predecessors(c):
+        for s in set(H.predecessors(c)):
             deleteEdge(H, s, c, max_level)
-        for s in H.successors(c):
+        for s in set(H.successors(c)):
             deleteEdge(H, c, s, max_level)
 
-        for s in M.successors(c):
-            deleteEdge(M, c, s, max_level)
+        for s in set(M.successors(c)):
+            M.remove_edge(c, s)
 
     for c in clients_to_delete:
         H.add_edge(source_node, c)

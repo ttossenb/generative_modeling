@@ -60,6 +60,7 @@ def createGraph(n, d, n_trees, n_nbrs):
 
     #0 -> 1 (don't flip sign), 1 -> -1 (flip sign)
     targetPoints = np.reshape(((-2) * binaries + 1) * targetPoints, ((2 ** d) * k, d))
+    np.random.shuffle(targetPoints)
 
     #placeholder for input
     latentPoints = normalize(np.random.normal(0, 1, (n, d)))
@@ -151,7 +152,7 @@ def updateBatch(G, n, annoy_index, batch_indices, latentBatch, H, M, max_level, 
     #latentBatch=latentPoints["batch_indices as np.array"] (must be sorted)
     #delete the nodes (and the edges from these nodes)
     deleteBatchOfClients(batch_indices, H, M, max_level)
-    G.delete_nodes_from(batch_indices)
+    G.remove_nodes_from(batch_indices)
     #add back the nodes
     G.add_nodes_from(batch_indices)
     #initialize closeIndices and closeDistances
@@ -166,14 +167,15 @@ def updateBatch(G, n, annoy_index, batch_indices, latentBatch, H, M, max_level, 
 
 
 def main():
+    n = 50000
+    #max_level = floor(sqrt(n) * sqrt(log(n))) #=735 for n=50000
+    max_level = 7
+
     start1 = time.clock()
     #---before training---
-    (G, client_nodes, server_nodes, annoy_index) = createGraph(n=50000, d=10, n_trees=60, n_nbrs=10)
+    (G, client_nodes, server_nodes, annoy_index) = createGraph(n=n, d=10, n_trees=60, n_nbrs=10)
     end1 = time.clock()
     print('Created G bipartate graph. Elapsed time: ', end1 - start1)
-
-    n = 50000
-    max_level = floor(sqrt(n) * sqrt(log(n))) #=735 for n=50000
 
     #initialize H before the clients are being added iteratively
     H = nx.DiGraph()
@@ -194,6 +196,7 @@ def main():
     print('Modified on one batch. Elapsed time: ', end3 - start3)
     #Todo modify the loss function with M
 
+    print('number of matching edges: ', len(M.edges()))
 
 if __name__ == "__main__":
     main()
