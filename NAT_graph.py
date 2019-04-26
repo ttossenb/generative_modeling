@@ -50,18 +50,20 @@ def createGraph(n, d, latentPoints, n_trees, n_nbrs, n_rndms):
     #n_nbrs = 10
 
     #number of points to put in each space segment
-    k = n // (2 ** d)
+    #k = n // (2 ** d)
 
     #start1 = time.clock()
 
     #generating target points, normalizing them, taking the absolute value of each
-    targetPoints = np.absolute(normalize(np.random.normal(0, 1, (2 ** d, k, d))))
+    #targetPoints = np.absolute(normalize(np.random.normal(0, 1, (2 ** d, k, d))))
 
-    binaries = np.expand_dims(binMatrix(d), axis=1)
+    targetPoints = normalize(np.random.normal(0, 1, (n, d)))
+
+    #binaries = np.expand_dims(binMatrix(d), axis=1)
 
     #0 -> 1 (don't flip sign), 1 -> -1 (flip sign)
-    targetPoints = np.reshape(((-2) * binaries + 1) * targetPoints, ((2 ** d) * k, d))
-    np.random.shuffle(targetPoints)
+    #targetPoints = np.reshape(((-2) * binaries + 1) * targetPoints, ((2 ** d) * k, d))
+    #np.random.shuffle(targetPoints)
 
     #create AnnoyIndex in R^d
     targetIndex = AnnoyIndex(d)
@@ -229,11 +231,11 @@ def addBatch(G, n, annoy_index, batch_indices, latentBatch, targetPoints, H, M, 
 
 
 def main():
-    n = 49152
+    n = 50000
     #max_level = floor(sqrt(n) * sqrt(log(n))) #=735 for n=50000
-    max_level = 8
+    max_level = 4
     n_nbrs = 10
-    n_rndms = 0
+    n_rndms = 10
 
     #placeholder for input
     #latentPoints = normalize(np.random.normal(0, 1, (n, d)))
