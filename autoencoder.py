@@ -1,24 +1,28 @@
+import sys
+import time
+from util import *
+
+import numpy as np
+import matplotlib.pyplot as plt
+from matplotlib.patches import Ellipse
+import networkx as nx
+from sortedcontainers import SortedSet
+
 from keras.optimizers import *
 from keras.models import Sequential
 from keras.layers import Dense, Activation, Reshape, Input, Lambda
 from keras import backend as K
 from keras.models import Model
-import numpy as np
-import matplotlib.pyplot as plt
-import sys
 
-from util import *
 import model_IO
 import loss
 import vis
 import samplers
 import callbacks
+import NAT_graph
 
 from networks import dense, conv
 
-import NAT_graph
-
-from matplotlib.patches import Ellipse
 
 
 # TODO refactor move to its own py
@@ -121,8 +125,42 @@ def run(args, data):
         n, args.latent_dim)
     print("done.")
 
+    d = args.latent_dim
+    max_level = 4
+    n_nbrs = 10
+    n_rndms = 10
+    (G, client_nodes, server_nodes, annoy_index, targetPoints) = NAT_graph.createGraph(n=n, d=d,
+                                    latentPoints=np.random.normal(size=(n, d)), # Probably not a good idea,
+                                    # make it work with None instead.
+                                    n_trees=60, n_nbrs=n_nbrs, n_rndms=n_rndms)
+
+    # H: Even-Shiloach graph
+    H = nx.DiGraph()
+    # M: matching
+    M = nx.DiGraph()
+    M.add_nodes_from(client_nodes)
+    M.add_nodes_from(server_nodes)
+    # F: previous matching updated with current matching.
+    F = nx.DiGraph()
+
+    start2 = time.clock()
+    NAT_graph.createESGraph(G, H, M, client_nodes, server_nodes, max_level)
+    end2 = time.clock()
+
+    print('number of matching edges / n : ', len(M.edges()) / n)
+    #deepcopy M to F
+    F.add_nodes_from(M.nodes)
+    F.add_edges_from(M.edges)
+    print('Created the initial ES graph. Elapsed time: ', end2 - start2)
+
+
     for epoch in range(args.nb_epoch):
         np.random.shuffle(x_train)
+
+        G.clear()
+        H.clear()
+        NAT_graph.initializeESGraph(H, client_nodes, server_nodes, source_node=-1)
+        M.clear()
 
         for i in range(iters_in_epoch):
             bs = args.batch_size
@@ -145,6 +183,17 @@ def run(args, data):
                 [x_batch], batch_size=bs)
             if args.sampling:
                 currentLatentPositions = currentLatentPositions[1]  # z_mean!
+
+            indices, currentLatentPositions = zip(*sorted(zip(indices, currentLatentPositions)))
+            indices = SortedSet(indices)
+            currentLatentPositions = np.array(currentLatentPositions)
+
+            start3 = time.clock()
+            NAT_graph.addBatch(G, n, annoy_index, indices, currentLatentPositions, targetPoints, H, M, F, max_level, n_nbrs=n_nbrs, n_rndms=n_rndms)
+            end3 = time.clock()
+            print('Modified on one batch. Elapsed time: ', end3 - start3)
+            #Todo modify the loss function with M
+
             dirties = set()
             for sample, latent in zip(x_batch, currentLatentPositions):
                 h = hashSample(sample)
