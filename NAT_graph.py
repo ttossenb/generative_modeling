@@ -232,14 +232,15 @@ def addBatch(G, n, annoy_index, batch_indices, latentBatch, targetPoints, H, M, 
 
 def main():
     n = 50000
+    d = 10
     #max_level = floor(sqrt(n) * sqrt(log(n))) #=735 for n=50000
     max_level = 4
     n_nbrs = 10
-    n_rndms = 10
+    n_rndms = 0
 
     #placeholder for input
-    #latentPoints = normalize(np.random.normal(0, 1, (n, d)))
-    latentPoints = normalize(np.load('latent_points_10.npy')[:n])
+    latentPoints = normalize(np.random.normal(0, 1, (n, d)))
+    #latentPoints = normalize(np.load('latent_points_10.npy')[:n])
 
     start1 = time.clock()
     #---before training---
@@ -273,14 +274,18 @@ def main():
     H.clear()
     initializeESGraph(H, client_nodes, server_nodes, source_node=-1)
     M.clear()
+    M.add_nodes_from(client_nodes)
+    M.add_nodes_from(server_nodes)
 
     #---after training each batch---
     start3 = time.clock()
-    batch_indices = SortedSet(range(0, 200)) #placeholder
-    latentBatch = normalize(np.random.normal(0, 1, size=(200, 10))) #placeholder
-    addBatch(G, n, annoy_index, batch_indices, latentBatch, targetPoints, H, M, F, max_level, n_nbrs=n_nbrs, n_rndms=n_rndms)
+    for i in range(n // 200):
+        batch_indices = SortedSet(range(i * 200, (i+1) * 200)) #placeholder
+        #latentBatch = normalize(np.random.normal(0, 1, size=(200, 10))) #placeholder
+        latentBatch = latentPoints[i * 200 : (i+1) * 200]  # placeholder
+        addBatch(G, n, annoy_index, batch_indices, latentBatch, targetPoints, H, M, F, max_level, n_nbrs=n_nbrs, n_rndms=n_rndms)
     end3 = time.clock()
-    print('Modified on one batch. Elapsed time: ', end3 - start3)
+    print('Modified on one epoch. Elapsed time: ', end3 - start3)
     #Todo modify the loss function with M
 
 
