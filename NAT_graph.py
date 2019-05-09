@@ -27,7 +27,9 @@ def buildServers(n, d):
     #number of trees in the LSH-forest
     n_trees = 60
 
-    targetPoints = normalize(np.random.normal(0, 1, size=(n, d)))
+    # let's not normalize, it's a mess in 2D
+    targetPoints = np.random.normal(0, 1, size=(n, d))
+
     #create AnnoyIndex in R^d
     targetIndex = AnnoyIndex(d)
     #add each of the target points

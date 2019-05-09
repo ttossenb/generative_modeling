@@ -5,6 +5,9 @@ from keras import backend as K
 from keras.models import Model
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib.patches import Ellipse
+from matplotlib.lines import Line2D
+import networkx as nx
 import sys
 
 from util import *
@@ -14,16 +17,34 @@ import vis
 import samplers
 import callbacks
 
+
 from networks import dense, conv
 
 import NAT_graph
 
-from matplotlib.patches import Ellipse
 
+# TODO move to vis.py
+def plot(latents, nats, matching, filename):
+    n = len(latents)
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    ax.scatter(latents[:, 0], latents[:, 1], c='red')
+    ax.scatter(nats[:, 0], nats[:, 1], c='blue')
+    for latent_index, nat_index in enumerate(matching):
+        if nat_index is not None:
+            xs = [latents[latent_index, 0], nats[nat_index, 0]]
+            ys = [latents[latent_index, 1], nats[nat_index, 1]]
+            l = Line2D(xs, ys)
+            ax.add_line(l)
+    ax.set_xlim(-2, +2)
+    ax.set_ylim(-2, +2)
+    plt.savefig(filename)
+    plt.close()
 
-# TODO refactor move to its own py
-def updateBipartiteGraph(dirties, latentPositions, invertHash, bipartite, annoyIndex):
-    n_nbrs = 10
+# TODO refactor, move to its own py
+def updateBipartiteGraph(dirties, latentPositions, natPositions, invertHash, bipartite, annoyIndex):
+    n_nearest = 5
+    n_random = 5
     n = len(invertHash)
     totalChange = 0.0
     changed = 0
@@ -31,14 +52,14 @@ def updateBipartiteGraph(dirties, latentPositions, invertHash, bipartite, annoyI
         i, sample = invertHash[h]
         latent = latentPositions[h]
         closeIndices, closeDistances = annoyIndex.get_nns_by_vector(
-            latent, n_nbrs, include_distances=True)
+            latent, n_nearest, include_distances=True)
         oldNeighbors = None
         if i in bipartite:
-            oldNeighbors = set(bipartite.neighbors(i))
+            oldNeighbors = set([nei for nei, datadict in bipartite.adj[i].items() if datadict['near']])
             bipartite.remove_node(i)
         bipartite.add_node(i, bipartite=0)
         newNeighbors = {closeNatIndex + n for closeNatIndex in closeIndices}
-        if oldNeighbors is not None:
+        if oldNeighbors is not None and len(oldNeighbors) > 0:
             inters = len(newNeighbors.intersection(oldNeighbors))
             jaccardDistance = 1 - inters / (2 * len(oldNeighbors) - inters)
             totalChange += jaccardDistance
@@ -46,16 +67,28 @@ def updateBipartiteGraph(dirties, latentPositions, invertHash, bipartite, annoyI
         for j in range(len(closeIndices)):
             closeNatIndex = closeIndices[j]
             dist = closeDistances[j]
-            bipartite.add_edge(i, closeNatIndex + n, weight=dist)
-    # print("Average change", totalChange / (changed+0.01), changed, len(latentPositions))
-    # sys.stdout.flush()
+            bipartite.add_edge(i, closeNatIndex + n, weight=dist, near=True)
+        randomIndices = np.random.choice(n, size=n_random, replace=False)
+        for natIndex in randomIndices:
+            # are we sure about natPositions[natIndex]?
+            dist = np.linalg.norm(natPositions[natIndex] - latent)
+            bipartite.add_edge(i, natIndex + n, weight=dist, near=False)
+    print("Average change", totalChange / (changed+0.01), changed, len(latentPositions))
 
+    print("nodes", bipartite.number_of_nodes(), "edges", bipartite.number_of_edges())
+    matching = nx.algorithms.matching.max_weight_matching(bipartite, maxcardinality=True, weight='weight')
+    print("matching", len(matching))
+    # TODO print the ratio of near nodes in the matching
+    m2 = [None for _ in range(n)]
+    for a, b in matching:
+        if a >= n:
+            b, a = a, b
+        latent_index = a
+        nat_index = b - n
+        m2[latent_index] = nat_index
 
-# TO BE CONTINUED
-def lookupNearestNaTs(indices, annoyIndex):
-    closeIndices, closeDistances = annoyIndex.get_nns_by_vector(
-        latent, n_nbrs, include_distances=True)
-    return natIndices
+    sys.stdout.flush()
+    return m2
 
 
 def hashSample(sample):
@@ -66,8 +99,8 @@ def run(args, data):
     # (x_train, x_test) = data
 
     ((x_train, y_train), (x_test, y_test)) = data
-    images = x_train[:1000]
-    labels = y_train[:1000]
+    images = x_train[:1000].copy()
+    labels = y_train[:1000].copy()
 
     print(x_test.shape)
 
@@ -121,6 +154,8 @@ def run(args, data):
         n, args.latent_dim)
     print("done.")
 
+    # TODO rewrite with fixed x_train, and x_batch = x_train[permutation[i * bs: (i + 1) * bs]]
+    matching = [None for _ in range(n)]
     for epoch in range(args.nb_epoch):
         np.random.shuffle(x_train)
 
@@ -134,10 +169,12 @@ def run(args, data):
                 indx, _ = invertHash[hashSample(sample)]
                 indices.append(indx)
 
-            # TO BE CONTINUED
-            # natIndices = lookupNearestNaTs(indices, latentPositions, annoyIndex)
-            # nat_batch = natPositions[natIndices]
-            nat_batch = np.zeros((args.batch_size, args.latent_dim))
+
+            nat_indices = [
+                matching[latent_index] if matching[latent_index] is not None else np.random.randint(n)
+                for latent_index in indices
+            ]
+            nat_batch = natPositions[nat_indices]
 
             res = models.ae.train_on_batch([x_batch, nat_batch], x_batch)
 
@@ -145,6 +182,10 @@ def run(args, data):
                 [x_batch], batch_size=bs)
             if args.sampling:
                 currentLatentPositions = currentLatentPositions[1]  # z_mean!
+
+            if i == 0:
+                plot(currentLatentPositions, nat_batch, range(len(x_batch)), "{}/matching-{}".format(args.outdir, epoch))
+
             dirties = set()
             for sample, latent in zip(x_batch, currentLatentPositions):
                 h = hashSample(sample)
@@ -155,14 +196,13 @@ def run(args, data):
                     if len(movements) > 1000:
                         movements = movements[-1000:]
                 latentPositions[h] = latent
-            updateBipartiteGraph(dirties, latentPositions,
+            matching = updateBipartiteGraph(dirties, latentPositions, natPositions,
                                  invertHash, bipartite, annoyIndex)
 
         currentEpochPos = models.encoder.predict(images, args.batch_size)
         z_sampled, z_mean, z_logvar = currentEpochPos
 
-        n = None
-
+        # TODO move ellipse vis to its own function and vis.py
         inum = len(images)
 
         ells = [Ellipse(xy=z_mean[i],
