@@ -42,16 +42,20 @@ def plot(latents, nats, matching, filename):
     plt.close()
 
 
+# builds the whole matrix from scratch, disregards dirties, uses pyemd.
+def updateBipartiteGraphFromScratch(dirties, latentPositions, natPositions, bipartite, annoyIndex):
+    raise "unimplemented"
+
 # TODO refactor, move to its own py
-def updateBipartiteGraph(dirties, latentPositions, natPositions, invertHash, bipartite, annoyIndex):
+def updateBipartiteGraph(dirties, latentPositions, natPositions, bipartite, annoyIndex):
     n_nearest = 0
     n_random = len(natPositions)
-    n = len(invertHash)
+
+    n = len(natPositions)
     totalChange = 0.0
     changed = 0
-    for h in dirties:
-        i, sample = invertHash[h]
-        latent = latentPositions[h]
+    for i in dirties:
+        latent = latentPositions[i]
         closeIndices, closeDistances = annoyIndex.get_nns_by_vector(
             latent, n_nearest, include_distances=True)
         oldNeighbors = None
@@ -151,13 +155,6 @@ def run(args, data):
         x_train, x_test, args, models, sampler)
 
     iters_in_epoch = x_train.shape[0] // args.batch_size
-    latentPositions = {}
-    movements = []
-
-    invertHash = {}
-    for i, sample in enumerate(x_train):
-        h = hashSample(sample)
-        invertHash[h] = (i, sample)
 
     n = len(x_train)
     print("creating bipartite graph and annoy index.")
@@ -165,24 +162,22 @@ def run(args, data):
         n, args.latent_dim)
     print("done.")
 
+    latentPositions = np.zeros_like(natPositions)
+    latentPositions.fill(np.nan)
+
     # TODO rewrite with fixed x_train, and x_batch = x_train[permutation[i * bs: (i + 1) * bs]]
     matching = [None for _ in range(n)]
 
     for epoch in range(args.nb_epoch):
-        np.random.shuffle(x_train)
+        random_permutation = np.random.permutation(n)
 
         if epoch > 10:
             K.set_value(nat_loss_weight_variable, epoch - 10)
 
         for i in range(iters_in_epoch):
             bs = args.batch_size
-            x_batch = x_train[i * bs: (i + 1) * bs]
-
-            # TODO that's a quite roundabout way of doing it:
-            indices = []
-            for sample in x_batch:
-                indx, _ = invertHash[hashSample(sample)]
-                indices.append(indx)
+            indices = random_permutation[i * bs: (i + 1) * bs]
+            x_batch = x_train[indices]
 
             nat_indices = [
                 matching[latent_index] if matching[latent_index] is not None else np.random.randint(n)
@@ -200,18 +195,7 @@ def run(args, data):
             if i == 0:
                 plot(currentLatentPositions, nat_batch, range(len(x_batch)), "%s/matching-%03d" % (args.outdir, epoch))
 
-            dirties = set()
-            for sample, latent in zip(x_batch, currentLatentPositions):
-                h = hashSample(sample)
-                dirties.add(h)
-                if h in latentPositions:
-                    movements.append(np.linalg.norm(
-                        latentPositions[h] - latent))
-                    if len(movements) > 1000:
-                        movements = movements[-1000:]
-                latentPositions[h] = latent
-            matching = updateBipartiteGraph(dirties, latentPositions, natPositions,
-                                 invertHash, bipartite, annoyIndex)
+            matching = updateBipartiteGraph(indices, latentPositions, natPositions, bipartite, annoyIndex)
 
         currentEpochPos = models.encoder.predict(images, args.batch_size)
         z_sampled, z_mean, z_logvar = currentEpochPos
