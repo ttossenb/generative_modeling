@@ -42,9 +42,35 @@ def plot(latents, nats, matching, filename):
     plt.close()
 
 
-# builds the whole matrix from scratch, disregards dirties, uses pyemd.
-def updateBipartiteGraphFromScratch(dirties, latentPositions, natPositions, bipartite, annoyIndex):
-    raise "unimplemented"
+def pairwiseSquaredDistances(clients, servers):
+    cL2S = np.sum(clients ** 2, axis=-1)
+    sL2S = np.sum(servers ** 2, axis=-1)
+    cL2SM = np.tile(cL2S, (len(servers), 1))
+    sL2SM = np.tile(sL2S, (len(clients), 1))
+    squaredDistances = cL2SM + sL2SM.T - 2.0 * servers.dot(clients.T)
+    return squaredDistances.T
+
+
+# builds the whole matrix from scratch, disregards dirties, bipartite, annoyIndex.
+def updateBipartiteGraphFromScratch(latentPositions, natPositions):
+    distances = np.sqrt(pairwiseSquaredDistances(latentPositions, natPositions))
+    n = distances.shape[0]
+    bipartite = nx.Graph()
+    bipartite.add_nodes_from(range(n), bipartite=0)
+    bipartite.add_nodes_from(range(n, 2*n), bipartite=1)
+    for i in range(n):
+        for j in range(n):
+            bipartite.add_edge(i, n+j, weight=distances[i, j], near=False)
+    matching = nx.algorithms.matching.max_weight_matching(bipartite, maxcardinality=True, weight='weight')
+    m2 = [None for _ in range(n)]
+    for a, b in matching:
+        if a >= n:
+            b, a = a, b
+        latent_index = a
+        nat_index = b - n
+        m2[latent_index] = nat_index
+    return m2
+
 
 # TODO refactor, move to its own py
 def updateBipartiteGraph(dirties, latentPositions, natPositions, bipartite, annoyIndex):
@@ -172,7 +198,7 @@ def run(args, data):
         random_permutation = np.random.permutation(n)
 
         if epoch > 10:
-            K.set_value(nat_loss_weight_variable, epoch - 10)
+            K.set_value(nat_loss_weight_variable, 2 * (epoch - 10))
 
         for i in range(iters_in_epoch):
             bs = args.batch_size
@@ -195,7 +221,8 @@ def run(args, data):
             if i == 0:
                 plot(currentLatentPositions, nat_batch, range(len(x_batch)), "%s/matching-%03d" % (args.outdir, epoch))
 
-            matching = updateBipartiteGraph(indices, latentPositions, natPositions, bipartite, annoyIndex)
+            # matching = updateBipartiteGraph(indices, latentPositions, natPositions, bipartite, annoyIndex)
+            matching = updateBipartiteGraphFromScratch(latentPositions, natPositions)
 
         currentEpochPos = models.encoder.predict(images, args.batch_size)
         z_sampled, z_mean, z_logvar = currentEpochPos
@@ -264,6 +291,7 @@ def run(args, data):
 
         plt.savefig("{}/latent-{}".format(args.outdir, epoch))
         plt.clf()
+        plt.close()
 
         print('epoch: {:03d}/{:03d}, iters: {:03d}/{:03d}'.format(epoch,
                 args.nb_epoch, i, iters_in_epoch), end='')
