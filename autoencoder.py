@@ -41,10 +41,11 @@ def plot(latents, nats, matching, filename):
     plt.savefig(filename)
     plt.close()
 
+
 # TODO refactor, move to its own py
 def updateBipartiteGraph(dirties, latentPositions, natPositions, invertHash, bipartite, annoyIndex):
-    n_nearest = 5
-    n_random = 5
+    n_nearest = 0
+    n_random = len(natPositions)
     n = len(invertHash)
     totalChange = 0.0
     changed = 0
@@ -117,11 +118,21 @@ def run(args, data):
 
     # get losses
     loss_names = sorted(set(args.loss_encoder + args.loss_generator))
-    losses = loss.loss_factory(
+    losses_without_nat = loss.loss_factory(
         loss_names, args, loss_features, combine_with_weights=True)
+
+    nat_loss_weight_variable = K.variable(0.0)
+    nat_loss_tensor = nat_loss_weight_variable * K.mean(K.square(loss_features.z_mean - loss_features.z_nat))
+    def nat_loss(x, x_decoded):
+        return nat_loss_tensor
+    def losses_with_nat(x, x_decoded):
+        return losses_without_nat(x, x_decoded) + nat_loss_tensor
+    losses = losses_with_nat
+
     metric_names = sorted(set(args.metrics + tuple(loss_names)))
     metrics = loss.loss_factory(
         metric_names, args, loss_features, combine_with_weights=False)
+    metrics += [nat_loss]
 
     # get optimizer
     if args.optimizer == "rmsprop":
@@ -156,8 +167,12 @@ def run(args, data):
 
     # TODO rewrite with fixed x_train, and x_batch = x_train[permutation[i * bs: (i + 1) * bs]]
     matching = [None for _ in range(n)]
+
     for epoch in range(args.nb_epoch):
         np.random.shuffle(x_train)
+
+        if epoch > 10:
+            K.set_value(nat_loss_weight_variable, epoch - 10)
 
         for i in range(iters_in_epoch):
             bs = args.batch_size
@@ -168,7 +183,6 @@ def run(args, data):
             for sample in x_batch:
                 indx, _ = invertHash[hashSample(sample)]
                 indices.append(indx)
-
 
             nat_indices = [
                 matching[latent_index] if matching[latent_index] is not None else np.random.randint(n)
@@ -184,7 +198,7 @@ def run(args, data):
                 currentLatentPositions = currentLatentPositions[1]  # z_mean!
 
             if i == 0:
-                plot(currentLatentPositions, nat_batch, range(len(x_batch)), "{}/matching-{}".format(args.outdir, epoch))
+                plot(currentLatentPositions, nat_batch, range(len(x_batch)), "%s/matching-%03d" % (args.outdir, epoch))
 
             dirties = set()
             for sample, latent in zip(x_batch, currentLatentPositions):
