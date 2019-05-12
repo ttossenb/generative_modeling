@@ -27,18 +27,18 @@ class ImageDisplayCallback(Callback):
             return
 
         randomImages = self.modelDict.generator.predict(self.randomPoints, batch_size=self.args.batch_size)
-        vis.plotImages(randomImages, 10, self.args.batch_size // 10, "{}/random-{}".format(self.args.outdir, epoch))
+        vis.plotImages(randomImages, 10, self.args.batch_size // 10, "{}/random-{:03d}".format(self.args.outdir, epoch))
         vis.plotImages(randomImages, 10, self.args.batch_size // 10, "{}/random".format(self.args.outdir))
 
         trainBatch = self.x_train[:self.args.batch_size]
-        vis.displayReconstructed(trainBatch, self.args, self.modelDict, "{}/train-{}".format(self.args.outdir, epoch))
+        vis.displayReconstructed(trainBatch, self.args, self.modelDict, "{}/train-{:03d}".format(self.args.outdir, epoch))
         vis.displayReconstructed(trainBatch, self.args, self.modelDict, "{}/train".format(self.args.outdir))
 
         testBatch = self.x_test[:self.args.batch_size]
-        vis.displayReconstructed(testBatch, self.args, self.modelDict, "{}/test-{}".format(self.args.outdir, epoch))
+        vis.displayReconstructed(testBatch, self.args, self.modelDict, "{}/test-{:03d}".format(self.args.outdir, epoch))
         vis.displayReconstructed(testBatch, self.args, self.modelDict, "{}/test".format(self.args.outdir))
 
-        #vis.displayInterp(trainBatch, self.args, self.modelDict, gridSize=10, name="{}/interp-{}".format(self.args.outdir, epoch))
+        #vis.displayInterp(trainBatch, self.args, self.modelDict, gridSize=10, name="{}/interp-{:03d}".format(self.args.outdir, epoch))
 
 
 class FlushCallback(Callback):

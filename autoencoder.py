@@ -299,8 +299,7 @@ def run(args, data):
                 print(", ", key, ": ", value, end='')
         print("\n", end='')
 
-        if i % args.frequency == 0:
-            imageDisplayCallback.on_epoch_end(epoch, logs=None)
+        imageDisplayCallback.on_epoch_end(epoch, logs=None)
 
     # save models
     model_IO.save_autoencoder(models, args)
