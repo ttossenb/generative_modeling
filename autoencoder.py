@@ -9,6 +9,7 @@ from matplotlib.patches import Ellipse
 from matplotlib.lines import Line2D
 import networkx as nx
 import sys
+import time
 
 from util import *
 import model_IO
@@ -24,7 +25,7 @@ import NAT_graph
 
 
 # TODO move to vis.py
-def plot(latents, nats, matching, filename):
+def plot_matching(latents, nats, matching, filename):
     n = len(latents)
     fig = plt.figure()
     ax = fig.add_subplot(111)
@@ -51,6 +52,16 @@ def pairwiseSquaredDistances(clients, servers):
     return squaredDistances.T
 
 
+def weight_of_matching(matching, latentPositions, natPositions):
+    w = 0.0
+    n = len(latentPositions)
+    for client, server in enumerate(matching):
+        if server is not None:
+            assert latentPositions[client, 0] != np.nan
+            w += np.linalg.norm(latentPositions[client] - natPositions[server])
+    return w
+
+
 # builds the whole matrix from scratch, disregards dirties, bipartite, annoyIndex.
 def updateBipartiteGraphFromScratch(latentPositions, natPositions):
     distances = np.sqrt(pairwiseSquaredDistances(latentPositions, natPositions))
@@ -74,8 +85,8 @@ def updateBipartiteGraphFromScratch(latentPositions, natPositions):
 
 # TODO refactor, move to its own py
 def updateBipartiteGraph(dirties, latentPositions, natPositions, bipartite, annoyIndex):
-    n_nearest = 0
-    n_random = len(natPositions)
+    n_nearest = 5 # 0
+    n_random = 5 # len(natPositions)
 
     n = len(natPositions)
     totalChange = 0.0
@@ -98,12 +109,11 @@ def updateBipartiteGraph(dirties, latentPositions, natPositions, bipartite, anno
         for j in range(len(closeIndices)):
             closeNatIndex = closeIndices[j]
             dist = closeDistances[j]
-            bipartite.add_edge(i, closeNatIndex + n, weight=dist, near=True)
+            bipartite.add_edge(i, closeNatIndex + n, weight=-dist, near=True) # minus because maximum weight
         randomIndices = np.random.choice(n, size=n_random, replace=False)
-        for natIndex in randomIndices:
-            # are we sure about natPositions[natIndex]?
+        for natIndex in sorted(randomIndices):
             dist = np.linalg.norm(natPositions[natIndex] - latent)
-            bipartite.add_edge(i, natIndex + n, weight=dist, near=False)
+            bipartite.add_edge(i, natIndex + n, weight=-dist, near=False) # minus because maximum weight
     print("Average change", totalChange / (changed+0.01), changed, len(latentPositions))
 
     print("nodes", bipartite.number_of_nodes(), "edges", bipartite.number_of_edges())
@@ -218,11 +228,29 @@ def run(args, data):
             if args.sampling:
                 currentLatentPositions = currentLatentPositions[1]  # z_mean!
 
-            if i == 0:
-                plot(currentLatentPositions, nat_batch, range(len(x_batch)), "%s/matching-%03d" % (args.outdir, epoch))
+            latentPositions[indices] = currentLatentPositions
 
-            # matching = updateBipartiteGraph(indices, latentPositions, natPositions, bipartite, annoyIndex)
-            matching = updateBipartiteGraphFromScratch(latentPositions, natPositions)
+            # if you do both, you can compare. normally you'd only do_approx.
+            # if you only want to test that the nat spring force affects the latents,
+            # then use matching = list(range(n))
+            do_exact = False
+            if do_exact:
+                start = time.clock()
+                matching_exact = updateBipartiteGraphFromScratch(latentPositions, natPositions)
+                print("exact  running time", time.clock() - start)
+                print("exact ", len(matching_exact ),
+                    weight_of_matching(matching_exact,  latentPositions, natPositions), matching_exact[:10])
+                matching = matching_exact
+            do_approx = True
+            if do_approx:
+                start = time.clock()
+                matching_approx = updateBipartiteGraph(indices, latentPositions, natPositions, bipartite, annoyIndex)
+                print("approx running time", time.clock() - start)
+                print("approx", len(matching_approx),
+                    weight_of_matching(matching_approx, latentPositions, natPositions), matching_approx[:10])
+                matching = matching_approx
+
+        plot_matching(latentPositions, natPositions, matching, "%s/matching-%03d" % (args.outdir, epoch))
 
         currentEpochPos = models.encoder.predict(images, args.batch_size)
         z_sampled, z_mean, z_logvar = currentEpochPos
