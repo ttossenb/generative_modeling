@@ -203,12 +203,14 @@ def run(args, data):
 
     # TODO rewrite with fixed x_train, and x_batch = x_train[permutation[i * bs: (i + 1) * bs]]
     matching = [None for _ in range(n)]
+    nat_force_active = False
 
     for epoch in range(args.nb_epoch):
         random_permutation = np.random.permutation(n)
 
         if epoch > 10:
             K.set_value(nat_loss_weight_variable, 2 * (epoch - 10))
+            nat_force_active = True
 
         for i in range(iters_in_epoch):
             bs = args.batch_size
@@ -230,6 +232,9 @@ def run(args, data):
 
             latentPositions[indices] = currentLatentPositions
 
+            if not nat_force_active:
+                continue
+
             # if you do both, you can compare. normally you'd only do_approx.
             # if you only want to test that the nat spring force affects the latents,
             # then use matching = list(range(n))
@@ -249,6 +254,8 @@ def run(args, data):
                 print("approx", len(matching_approx),
                     weight_of_matching(matching_approx, latentPositions, natPositions), matching_approx[:10])
                 matching = matching_approx
+
+            # WARNING don't put functionality here, skipped if not nat_force_active.
 
         plot_matching(latentPositions, natPositions, matching, "%s/matching-%03d" % (args.outdir, epoch))
 
