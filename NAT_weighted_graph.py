@@ -5,7 +5,7 @@ from scipy.sparse import coo_matrix
 from annoy import AnnoyIndex
 import time
 from sortedcontainers import SortedSet
-import directed_ES as ES
+import directed_weighted_ES as ES
 from math import sqrt, log, floor
 from random import randint
 
@@ -27,9 +27,7 @@ def buildServers(n, d):
     #number of trees in the LSH-forest
     n_trees = 60
 
-    # let's not normalize, it's a mess in 2D
-    targetPoints = np.random.normal(0, 1, size=(n, d))
-
+    targetPoints = normalize(np.random.normal(0, 1, size=(n, d)))
     #create AnnoyIndex in R^d
     targetIndex = AnnoyIndex(d)
     #add each of the target points
@@ -133,60 +131,66 @@ def createGraph(n, d, latentPoints, n_trees, n_nbrs, n_rndms):
     return G, client_nodes, server_nodes, loadedIndex, targetPoints
 
 
-def createESGraph(G, H, M, client_nodes, server_nodes, max_level, source_node=-1):
+def createESGraph(G, H, parents_by_level, levels, M, client_nodes, server_nodes, max_level, source_node=-1):
     #H = directed ES graph
     #n = len(client_nodes)
 
-    H.add_node(source_node, level=0)
-    H.add_nodes_from(client_nodes, level=1)
-    H.add_nodes_from(server_nodes, level=1)
-
-    #connect the source node to the server nodes
+    H.add_node(source_node)
+    levels[source_node] = 0
+    H.add_nodes_from(client_nodes)
+    for c in client_nodes:
+        levels[c] = 1
+    H.add_nodes_from(server_nodes)
     for s in server_nodes:
-        H.add_edge(source_node, s)
-        H.nodes[s]['witnesses'] = SortedSet()
-        H.nodes[s]['witnesses'].add(source_node)
+        levels[s] = 1
 
     #connect the source node to the client nodes
     for c in client_nodes:
         H.add_edge(source_node, c)
-        H.nodes[c]['witnesses'] = SortedSet()
-        H.nodes[c]['witnesses'].add(source_node)
+        parents_by_level[(c, 0)].add(source_node)
+
+    #connect the source node to the server nodes
+    for s in server_nodes:
+        H.add_edge(source_node, s)
+        parents_by_level[(s, 0)].add(source_node)
 
     #add all the clients 1 by 1 while maintaining the ES structure
     #also modify M to be a maximal matching
     clients_to_add = client_nodes
-    ES.addClients(G, clients_to_add, H, M, source_node, max_level)
+    ES.addClients(G, clients_to_add, H, parents_by_level, levels, M, source_node, max_level)
 
 
-def initializeESGraph(H, client_nodes, server_nodes, source_node=-1):
+def initializeESGraph(H, parents_by_level, levels, client_nodes, server_nodes, source_node=-1):
     #H = directed ES graph
-    H.add_node(source_node, level=0)
-    H.add_nodes_from(client_nodes, level=1)
-    H.add_nodes_from(server_nodes, level=1)
-
-    #connect the source node to the server nodes
+    H.add_node(source_node)
+    levels[source_node] = 0
+    H.add_nodes_from(client_nodes)
+    for c in client_nodes:
+        levels[c] = 1
+    H.add_nodes_from(server_nodes)
     for s in server_nodes:
-        H.add_edge(source_node, s)
-        H.nodes[s]['witnesses'] = SortedSet()
-        H.nodes[s]['witnesses'].add(source_node)
+        levels[s] = 1
 
     #connect the source node to the client nodes
     for c in client_nodes:
         H.add_edge(source_node, c)
-        H.nodes[c]['witnesses'] = SortedSet()
-        H.nodes[c]['witnesses'].add(source_node)
+        parents_by_level[(c, 0)].add(source_node)
+
+    #connect the source node to the server nodes
+    for s in server_nodes:
+        H.add_edge(source_node, s)
+        parents_by_level[(s, 0)].add(source_node)
 
 
-def deleteBatchOfClients(clients_to_delete, H, M, max_level, source_node=-1):
+def deleteBatchOfClients(clients_to_delete, H, parents_by_level, levels, M, max_level, source_node=-1):
     #clients_to_delete = sorted set of the indices of the batch elements to delete
     ES.deleteClients(clients_to_delete, H, M, source_node, max_level)
 
 
-def updateBatch(G, n, annoy_index, batch_indices, latentBatch, targetPoints, H, M, max_level, n_nbrs, n_rndms=0, source_node=-1):
+def updateBatch(G, n, annoy_index, batch_indices, latentBatch, targetPoints, H, parents_by_level, levels, M, max_level, n_nbrs, n_rndms=0, source_node=-1):
     #latentBatch=latentPoints["batch_indices as np.array"] (must be sorted)
     #delete the nodes (and the edges from these nodes)
-    deleteBatchOfClients(batch_indices, H, M, max_level)
+    deleteBatchOfClients(batch_indices, H, parents_by_level, levels, M, max_level)
     G.remove_nodes_from(batch_indices)
     #add back the nodes
     G.add_nodes_from(batch_indices)
@@ -205,10 +209,10 @@ def updateBatch(G, n, annoy_index, batch_indices, latentBatch, targetPoints, H, 
     ES.addClients(G, batch_indices, H, M, source_node, max_level)
 
 
-def addBatch(G, n, annoy_index, batch_indices, latentBatch, targetPoints, H, M, F, max_level, n_nbrs, n_rndms=0, source_node=-1):
+def addBatch(G, n, annoy_index, batch_indices, latentBatch, targetPoints, H, parents_by_level, levels, M, F, max_level, n_nbrs, n_rndms=0, source_node=-1):
     #latentBatch=latentPoints["batch_indices as np.array"] (must be sorted)
     #delete the nodes (and the edges from these nodes)
-    G.remove_nodes_from(batch_indices)
+    #G.remove_nodes_from(batch_indices)
     #add back the nodes
     G.add_nodes_from(batch_indices)
     #initialize closeIndices and closeDistances
@@ -223,7 +227,7 @@ def addBatch(G, n, annoy_index, batch_indices, latentBatch, targetPoints, H, M, 
             tempRandInt = randint(0, n-1) #n as number of SERVER nodes, might need to change it!!!
             G.add_edge(batch_indices[i], n + tempRandInt,
                        weight=np.linalg.norm(latentBatch[i] - targetPoints[tempRandInt])) #might add the same edge twice
-    ES.addClients(G, batch_indices, H, M, source_node, max_level)
+    ES.addClients(G, batch_indices, H, parents_by_level, levels, M, source_node, max_level)
     #readjust F
     for c in batch_indices:
         for s in set(F.successors(c)):
@@ -236,9 +240,10 @@ def main():
     n = 50000
     d = 10
     #max_level = floor(sqrt(n) * sqrt(log(n))) #=735 for n=50000
-    max_level = 4
-    n_nbrs = 10
+    max_level = 6
+    n_nbrs = 11
     n_rndms = 0
+    source_node = -1
 
     #placeholder for input
     latentPoints = normalize(np.random.normal(0, 1, (n, d)))
@@ -259,9 +264,21 @@ def main():
     M.add_nodes_from(server_nodes)
     #initialize F bipartate graph of forces
     F = nx.DiGraph()
+    #initialize parents, (node, level): SortedSet(parents of the node on the given level)
+    parents_by_level = {}
+    for l in range(max_level + 2):
+        parents_by_level[(source_node, l)] = SortedSet()
+    for c in client_nodes:
+        for l in range(max_level + 2):
+            parents_by_level[(c, l)] = SortedSet()
+    for s in server_nodes:
+        for l in range(max_level + 2):
+            parents_by_level[(s, l)] = SortedSet()
+    #initialize levels
+    levels = {}
 
     start2 = time.clock()
-    createESGraph(G, H, M, client_nodes, server_nodes, max_level)
+    createESGraph(G, H, parents_by_level, levels, M, client_nodes, server_nodes, max_level)
     end2 = time.clock()
 
     print('number of matching edges / n : ', len(M.edges()) / n)
@@ -274,7 +291,7 @@ def main():
     #---at the start of each epoch---
     G.clear()
     H.clear()
-    initializeESGraph(H, client_nodes, server_nodes, source_node=-1)
+    initializeESGraph(H, parents_by_level, levels, client_nodes, server_nodes, source_node)
     M.clear()
     M.add_nodes_from(client_nodes)
     M.add_nodes_from(server_nodes)
@@ -285,7 +302,7 @@ def main():
         batch_indices = SortedSet(range(i * 200, (i+1) * 200)) #placeholder
         #latentBatch = normalize(np.random.normal(0, 1, size=(200, 10))) #placeholder
         latentBatch = latentPoints[i * 200 : (i+1) * 200]  # placeholder
-        addBatch(G, n, annoy_index, batch_indices, latentBatch, targetPoints, H, M, F, max_level, n_nbrs=n_nbrs, n_rndms=n_rndms)
+        addBatch(G, n, annoy_index, batch_indices, latentBatch, targetPoints, H, parents_by_level, levels, M, F, max_level, n_nbrs=n_nbrs, n_rndms=n_rndms)
     end3 = time.clock()
     print('Modified on one epoch. Elapsed time: ', end3 - start3)
     #Todo modify the loss function with M
