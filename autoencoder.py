@@ -320,11 +320,11 @@ def run(args, data):
 
         ax.legend((blu[0], g[0], r[0], c[0], m[0], y[0], bla[0], o[0], t[0], br[0]),
             (0, 1, 2, 3, 4, 5, 6, 7, 8, 9), loc="best")
-        
+
         plt.xlim(-2,2)
         plt.ylim(-2,2)
 
-        plt.savefig("{}/latent-{}".format(args.outdir, epoch))
+        plt.savefig("{}/latent-{:03d}".format(args.outdir, epoch))
         plt.clf()
         plt.close()
 

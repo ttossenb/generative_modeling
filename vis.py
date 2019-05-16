@@ -69,7 +69,6 @@ def displayInterp(imageBatch, args, models, name, gridSize, anchor_indices=[12, 
     reshapedGrid = grid.reshape([grid.shape[0]] + list(imageBatch.shape[1:]))
     plotImages(reshapedGrid, gridSize, gridSize+1, name)
 
-    
 
 def plotImages(data, n_x, n_y, name, text=None):
     (height, width, channel) = data.shape[1:]
@@ -92,7 +91,7 @@ def plotImages(data, n_x, n_y, name, text=None):
         image_data[height_inc*y:height_inc*y+height, width_inc*x:width_inc*x+width] = 255*sample.clip(0, 0.99999)
     img = Image.fromarray(image_data,mode=mode)
     fileName = name + ".png"
-    print("Creating file " + fileName)
+    # print("Creating file " + fileName)
     if text is not None:
         img.text(10, 10, text)
     img.save(fileName)
