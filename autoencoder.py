@@ -39,6 +39,7 @@ def plot_matching(latents, nats, matching, filename):
             ax.add_line(l)
     ax.set_xlim(-2, +2)
     ax.set_ylim(-2, +2)
+    plt.title(filename)
     plt.savefig(filename)
     plt.close()
 
@@ -208,9 +209,12 @@ def run(args, data):
     for epoch in range(args.nb_epoch):
         random_permutation = np.random.permutation(n)
 
-        if epoch > 10:
-            K.set_value(nat_loss_weight_variable, 2 * (epoch - 10))
+        if epoch % 10 == 0 and epoch > 20:
+            K.set_value(nat_loss_weight_variable, 10 * (epoch - 10))
             nat_force_active = True
+
+        if epoch % 10 != 0 and epoch > 20:
+            nat_force_active = False
 
         for i in range(iters_in_epoch):
             bs = args.batch_size
@@ -323,8 +327,10 @@ def run(args, data):
 
         plt.xlim(-2,2)
         plt.ylim(-2,2)
-
+        
+        plt.title("%s/latent-%03d" % (args.outdir, epoch))
         plt.savefig("{}/latent-{:03d}".format(args.outdir, epoch))
+
         plt.clf()
         plt.close()
 
