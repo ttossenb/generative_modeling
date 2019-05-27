@@ -72,7 +72,7 @@ def updateBipartiteGraphFromScratch(latentPositions, natPositions):
     bipartite.add_nodes_from(range(n, 2*n), bipartite=1)
     for i in range(n):
         for j in range(n):
-            bipartite.add_edge(i, n+j, weight=distances[i, j], near=False)
+            bipartite.add_edge(i, n+j, weight=-distances[i, j], near=False)
     matching = nx.algorithms.matching.max_weight_matching(bipartite, maxcardinality=True, weight='weight')
     m2 = [None for _ in range(n)]
     for a, b in matching:
@@ -92,10 +92,23 @@ def updateBipartiteGraph(dirties, latentPositions, natPositions, bipartite, anno
     n = len(natPositions)
     totalChange = 0.0
     changed = 0
+
+    distances = np.sqrt(pairwiseSquaredDistances(latentPositions, natPositions))
+
     for i in dirties:
         latent = latentPositions[i]
+
+        
+        closeIndices = np.argsort(distances[i])[:n_nearest]
+        closeDistances = []
+        for j in closeIndices:
+            closeDistances.append(distances[i][j]) 
+
+        '''
         closeIndices, closeDistances = annoyIndex.get_nns_by_vector(
             latent, n_nearest, include_distances=True)
+        '''
+
         oldNeighbors = None
         if i in bipartite:
             oldNeighbors = set([nei for nei, datadict in bipartite.adj[i].items() if datadict['near']])
@@ -110,11 +123,11 @@ def updateBipartiteGraph(dirties, latentPositions, natPositions, bipartite, anno
         for j in range(len(closeIndices)):
             closeNatIndex = closeIndices[j]
             dist = closeDistances[j]
-            bipartite.add_edge(i, closeNatIndex + n, weight=-dist, near=True) # minus because maximum weight
+            bipartite.add_edge(i, closeNatIndex + n, weight= dist * (-1), near=True) # minus because maximum weight
         randomIndices = np.random.choice(n, size=n_random, replace=False)
         for natIndex in sorted(randomIndices):
             dist = np.linalg.norm(natPositions[natIndex] - latent)
-            bipartite.add_edge(i, natIndex + n, weight=-dist, near=False) # minus because maximum weight
+            bipartite.add_edge(i, natIndex + n, weight= dist * (-1), near=False) # minus because maximum weight
     print("Average change", totalChange / (changed+0.01), changed, len(latentPositions))
 
     print("nodes", bipartite.number_of_nodes(), "edges", bipartite.number_of_edges())
@@ -209,22 +222,35 @@ def run(args, data):
     for epoch in range(args.nb_epoch):
         random_permutation = np.random.permutation(n)
 
+        
         if epoch % 10 == 0 and epoch > 20:
-            K.set_value(nat_loss_weight_variable, 10 * (epoch - 10))
+            K.set_value(nat_loss_weight_variable, 10 * (epoch-30))
             nat_force_active = True
 
         if epoch % 10 != 0 and epoch > 20:
             nat_force_active = False
+
 
         for i in range(iters_in_epoch):
             bs = args.batch_size
             indices = random_permutation[i * bs: (i + 1) * bs]
             x_batch = x_train[indices]
 
-            nat_indices = [
-                matching[latent_index] if matching[latent_index] is not None else np.random.randint(n)
-                for latent_index in indices
-            ]
+            if K.get_value(nat_loss_weight_variable) == 0:
+                nat_indices = [matching[latent_index] if matching[latent_index] is not None else np.random.randint(n)
+                for latent_index in indices]
+            else:
+                nat_indices = []
+                numnone = 0
+                for latent_index in indices:
+                    assert numnone < 0.9 * n, "Sok None"
+                    if matching[latent_index] is not None:
+                        nat_indices.append(matching[latent_index])
+                    else:
+                        nat_indices.append(np.random.randint(n))
+                        numnone += 1
+                print("number of none ", numnone)    
+
             nat_batch = natPositions[nat_indices]
 
             res = models.ae.train_on_batch([x_batch, nat_batch], x_batch)
@@ -242,6 +268,16 @@ def run(args, data):
             # if you do both, you can compare. normally you'd only do_approx.
             # if you only want to test that the nat spring force affects the latents,
             # then use matching = list(range(n))
+
+            '''
+            if epoch < 60:
+                do_exact = True
+                do_approx = False
+            else:
+                do_exact = False
+                do_approx = True    
+            '''
+
             do_exact = False
             if do_exact:
                 start = time.clock()
@@ -325,9 +361,9 @@ def run(args, data):
         ax.legend((blu[0], g[0], r[0], c[0], m[0], y[0], bla[0], o[0], t[0], br[0]),
             (0, 1, 2, 3, 4, 5, 6, 7, 8, 9), loc="best")
 
-        plt.xlim(-2,2)
-        plt.ylim(-2,2)
-        
+        plt.xlim(-5,5)
+        plt.ylim(-5,5)
+
         plt.title("%s/latent-%03d" % (args.outdir, epoch))
         plt.savefig("{}/latent-{:03d}".format(args.outdir, epoch))
 
