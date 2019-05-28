@@ -29,7 +29,7 @@ def buildServers(n, d):
 
     targetPoints = normalize(np.random.normal(0, 1, size=(n, d)))
     #create AnnoyIndex in R^d
-    targetIndex = AnnoyIndex(d)
+    targetIndex = AnnoyIndex(d, metric='euclidean')
     #add each of the target points
     for i in range(targetPoints.shape[0]):
         targetIndex.add_item(i, targetPoints[i])
@@ -59,6 +59,9 @@ def createGraph(n, d, latentPoints, n_trees, n_nbrs, n_rndms):
 
     targetPoints = normalize(np.random.normal(0, 1, (n, d)))
 
+    # print("translating nat points to spice it up a bit")
+    # targetPoints += 1
+
     #binaries = np.expand_dims(binMatrix(d), axis=1)
 
     #0 -> 1 (don't flip sign), 1 -> -1 (flip sign)
@@ -66,7 +69,7 @@ def createGraph(n, d, latentPoints, n_trees, n_nbrs, n_rndms):
     #np.random.shuffle(targetPoints)
 
     #create AnnoyIndex in R^d
-    targetIndex = AnnoyIndex(d)
+    targetIndex = AnnoyIndex(d, metric='euclidean')
     #add each of the target points
     for i in range(targetPoints.shape[0]):
         targetIndex.add_item(i, targetPoints[i])
@@ -76,7 +79,7 @@ def createGraph(n, d, latentPoints, n_trees, n_nbrs, n_rndms):
 
     #save and load with memory map
     targetIndex.save("LSHForest.ann")
-    loadedIndex = AnnoyIndex(d)
+    loadedIndex = AnnoyIndex(d, metric='euclidean')
     loadedIndex.load("LSHForest.ann")
 
     #end1 = time.clock()
@@ -241,13 +244,31 @@ def addBatch(G, n, annoy_index, batch_indices, latentBatch, targetPoints, H, par
             F.add_edge(c, s)
 
 
+def greedy_matching(G, n):
+    G = G.copy()
+    m = [None for _ in range(n)]
+    while G.number_of_edges() > 0:
+        w, (a, b) = min(((data['weight'], (node, neighbor)) for (node, neighbor, data) in G.edges(data=True)))
+        if a >= n:
+            b, a = a, b
+        latent_index = a
+        nat_index = b - n
+        m[latent_index] = nat_index
+        G.remove_node(a)
+        G.remove_node(b)
+    return m
+
+
+import autoencoder
+
+
 def main():
-    n = 50000
-    d = 10
+    n = 400
+    d = 3
     #max_level = floor(sqrt(n) * sqrt(log(n))) #=735 for n=50000
     max_level = 4
     n_nbrs = 10
-    n_rndms = 0
+    n_rndms = 15
     source_node = -1
 
     #placeholder for input
@@ -256,7 +277,7 @@ def main():
 
     start1 = time.clock()
     #---before training---
-    (G, client_nodes, server_nodes, annoy_index, targetPoints) = createGraph(n=n, d=10, latentPoints=latentPoints,
+    (G, client_nodes, server_nodes, annoy_index, targetPoints) = createGraph(n=n, d=d, latentPoints=latentPoints,
                                                                n_trees=60, n_nbrs=n_nbrs, n_rndms=n_rndms)
     end1 = time.clock()
     print('Created G bipartate graph. Elapsed time: ', end1 - start1)
@@ -299,6 +320,44 @@ def main():
         weight_of_matching = weight_of_matching + wt
     print('Weight of the found matching: ', weight_of_matching)
     print('Average weight of an edge in the matching: ', weight_of_matching / len(M.edges()))
+
+    print("now calculating sparse matching")
+    G_minus = G.copy()
+    for (node, neighbor, data) in G.edges(data=True):
+        G_minus[node][neighbor]['weight'] = -data['weight']
+    start = time.clock()
+    matching_sparse = nx.algorithms.matching.max_weight_matching(G_minus, maxcardinality=True, weight='weight')
+    m2 = [None for _ in range(n)]
+    for a, b in matching_sparse:
+        if a >= n:
+            b, a = a, b
+        latent_index = a
+        nat_index = b - n
+        m2[latent_index] = nat_index
+
+    print(len(matching_sparse), autoencoder.weight_of_matching(m2, latentPoints, targetPoints))
+    print("Elapsed time: ", time.clock() - start)
+
+    print("now calculating sparse greedy matching")
+    start = time.clock()
+    matching_greedy = greedy_matching(G, n)
+    matched_greedily = sum(int(p is not None) for p in matching_greedy)
+    print(matched_greedily, autoencoder.weight_of_matching(matching_greedy, latentPoints, targetPoints))
+    print("Elapsed time: ", time.clock() - start)
+
+    print("now calculating random matching")
+    start = time.clock()
+    matching_random = np.random.permutation(n)
+    print(autoencoder.weight_of_matching(matching_random, latentPoints, targetPoints))
+    print("Elapsed time: ", time.clock() - start)
+
+    print("now calculating dense matching")
+    start = time.clock()
+    matching_dense = autoencoder.updateBipartiteGraphFromScratch(latentPoints, targetPoints)
+    print(autoencoder.weight_of_matching(matching_dense, latentPoints, targetPoints))
+    print("Elapsed time: ", time.clock() - start)
+
+    return
 
     #---at the start of each epoch---
     start3 = time.clock()
