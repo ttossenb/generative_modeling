@@ -1,0 +1,62 @@
+HM, sparse(500, 7)
+Sum of weights: 330.096435546875
+Number of matched edges / n:  0.998
+Average length of edge in the matching: 0.66019287109375
+Elapsed time: 20.88099102303168
+
+
+ESUW, sparse(500, 7):
+number of matching edges / n :  0.984
+Created the initial ES graph. Elapsed time:  0.3079728883686747
+Weight of the found matching:  366.890869140625
+Average weight of an edge in the matching:  0.7457131486598069
+
+
+ESW, sparse(500, 7):
+number of matching edges / n :  0.982
+Created the initial ES graph. Elapsed time:  0.7213859971431846
+Weight of the found matching:  332.785888671875
+Average weight of an edge in the matching:  0.6777716673561609
+
+
+
+
+HM, dense(500):
+Sum of weights: 328.25244140625
+Number of matched edges / n:  1.0
+Average length of edge in the matching: 0.6565048828125
+Elapsed time: 1154.6187008496818
+
+
+ESUW, dense(500):
+number of matching edges / n :  1.0
+Created the initial ES graph. Elapsed time:  10.304981755562467
+Weight of the found matching:  700.33251953125
+Average weight of an edge in the matching:  1.4006650390625
+
+
+ESW, dense(500):
+number of matching edges / n :  1.0
+Created the initial ES graph. Elapsed time:  188.99941230465376
+Weight of the found matching:  354.62255859375
+Average weight of an edge in the matching:  0.7092451171875
+
+
+
+
+HM, sparse(50000, 11):
+-
+
+
+ESUW, sparse(50000, 11):
+number of matching edges / n :  0.9918
+Created the initial ES graph. Elapsed time:  27.054131783876265
+Weight of the found matching:  22507.021850585938
+Average weight of an edge in the matching:  0.4538621062832413
+
+
+ESW, sparse(50000, 11):
+number of matching edges / n :  0.9897
+Created the initial ES graph. Elapsed time:  74.7957046922364
+Weight of the found matching:  19767.99090576172
+Average weight of an edge in the matching:  0.3994744044813927
