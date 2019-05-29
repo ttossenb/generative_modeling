@@ -5,7 +5,7 @@ from scipy.sparse import coo_matrix
 from annoy import AnnoyIndex
 import time
 from sortedcontainers import SortedSet
-import directed_weighted_ES as ES
+import directed_unweighted_ES as ES
 from math import sqrt, log, floor
 from random import randint
 
