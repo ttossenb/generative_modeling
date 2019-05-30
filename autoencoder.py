@@ -230,7 +230,6 @@ def run(args, data):
         if epoch % 10 != 0 and epoch > 20:
             nat_force_active = False
 
-
         for i in range(iters_in_epoch):
             bs = args.batch_size
             indices = random_permutation[i * bs: (i + 1) * bs]
@@ -304,6 +303,50 @@ def run(args, data):
 
         # TODO move ellipse vis to its own function and vis.py
         inum = len(images)
+
+        close = []
+        numclose = 10
+
+        distcent = []
+        numcent = args.trainSize // 2
+
+        for i in range(inum):
+            distcent.append(np.linalg.norm(z_mean[i]))
+            distcent = sorted(distcent)  
+            dist = []
+            for j in range(inum):
+                dist.append(np.linalg.norm(z_mean[i] - z_mean[j]))
+            dist = sorted(dist)
+            close.append(dist[numclose])
+
+        centered = distcent[0]
+        radc = distcent[numcent]
+
+        rad = sum(close) / len(close)
+        print('clustering radius: ', rad )
+
+        av = [[] for _ in range(10)]
+
+        allav = []
+
+        for i in range(inum):
+            label = labels[i]
+            allnum = 0
+            samenum = 0
+            for j in range(inum):
+                if(np.linalg.norm(z_mean[i] - z_mean[j]) < rad):
+                    allnum += 1
+                    if(labels[i] == labels[j]):    
+                        samenum += 1
+            
+            av[label].append((samenum, allnum))            
+            allav.append((samenum, allnum))
+
+        for l in range(10):
+            ratios = np.array([samenum / allnum for (samenum, allnum) in av[l]])
+            print("clustering of label %d: %f" % (l, ratios.mean()))
+        ratios = np.array([samenum / allnum for (samenum, allnum) in allav])
+        print("global clustering: %f" % ratios.mean())
 
         ells = [Ellipse(xy=z_mean[i],
                         width=2 * np.exp(z_logvar[i][0]),
