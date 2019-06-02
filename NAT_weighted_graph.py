@@ -23,48 +23,7 @@ def binMatrix(d):
     return binaries
 
 
-def buildServers(n, d):
-    #number of trees in the LSH-forest
-    n_trees = 60
-
-    targetPoints = normalize(np.random.normal(0, 1, size=(n, d)))
-    #create AnnoyIndex in R^d
-    targetIndex = AnnoyIndex(d)
-    #add each of the target points
-    for i in range(targetPoints.shape[0]):
-        targetIndex.add_item(i, targetPoints[i])
-    targetIndex.build(n_trees)
-    B = nx.Graph()
-    B.add_nodes_from(range(n, 2*n), bipartite=1)
-    return targetPoints, B, targetIndex
-
-
-def createGraph(n, d, latentPoints, n_trees, n_nbrs, n_rndms):
-    #n = number of traing inputs
-    #n = 50000
-    #d = latent dimension
-    #d = 10
-    #n_trees = number of trees in the LSH-forest
-    #n_trees = 60
-    #n_nbrs = number of closest neighbourers to check
-    #n_nbrs = 10
-
-    #number of points to put in each space segment
-    #k = n // (2 ** d)
-
-    #start1 = time.clock()
-
-    #generating target points, normalizing them, taking the absolute value of each
-    #targetPoints = np.absolute(normalize(np.random.normal(0, 1, (2 ** d, k, d))))
-
-    targetPoints = normalize(np.random.normal(0, 1, (n, d)))
-
-    #binaries = np.expand_dims(binMatrix(d), axis=1)
-
-    #0 -> 1 (don't flip sign), 1 -> -1 (flip sign)
-    #targetPoints = np.reshape(((-2) * binaries + 1) * targetPoints, ((2 ** d) * k, d))
-    #np.random.shuffle(targetPoints)
-
+def createGraph(n, d, latentPoints, targetPoints, n_trees, n_nbrs, n_rndms):
     #create AnnoyIndex in R^d
     targetIndex = AnnoyIndex(d)
     #add each of the target points
@@ -128,10 +87,10 @@ def createGraph(n, d, latentPoints, n_trees, n_nbrs, n_rndms):
     #print("Elapsed time during the initialization of the LSH-forest: ", end2-start2)
     #print("Elapsed time during the creation of the bipartite graph: ", end3-start3)
 
-    return G, client_nodes, server_nodes, loadedIndex, targetPoints
+    return G, client_nodes, server_nodes, loadedIndex
 
 
-def createESGraph(G, H, parents_by_level, levels, best_gains, M, client_nodes, server_nodes, max_level, source_node=-1):
+def createESGraph(G, H, parents_by_level, levels, best_gains, M, F, client_nodes, server_nodes, max_level, source_node=-1):
     #H = directed ES graph
     #n = len(client_nodes)
 
@@ -160,6 +119,10 @@ def createESGraph(G, H, parents_by_level, levels, best_gains, M, client_nodes, s
     #also modify M to be a maximal matching
     clients_to_add = client_nodes
     ES.addClients(G, clients_to_add, H, parents_by_level, levels, best_gains, M, source_node, max_level)
+
+    #deepcopy M to F
+    F.add_nodes_from(M.nodes)
+    F.add_edges_from(M.edges)
 
 
 def initializeESGraph(H, parents_by_level, levels, best_gains, client_nodes, server_nodes, source_node=-1):
@@ -219,6 +182,7 @@ def addBatch(G, n, annoy_index, batch_indices, latentBatch, targetPoints, H, par
     #delete the nodes (and the edges from these nodes)
     #G.remove_nodes_from(batch_indices)
     #add back the nodes
+    batch_indices = SortedSet(batch_indices)
     G.add_nodes_from(batch_indices)
     #initialize closeIndices and closeDistances
     closeIndices = np.zeros((latentBatch.shape[0], n_nbrs), dtype=int)
@@ -241,26 +205,7 @@ def addBatch(G, n, annoy_index, batch_indices, latentBatch, targetPoints, H, par
             F.add_edge(c, s)
 
 
-def main():
-    n = 50000
-    d = 10
-    #max_level = floor(sqrt(n) * sqrt(log(n))) #=735 for n=50000
-    max_level = 4
-    n_nbrs = 10
-    n_rndms = 0
-    source_node = -1
-
-    #placeholder for input
-    latentPoints = normalize(np.random.normal(0, 1, (n, d)))
-    #latentPoints = normalize(np.load('latent_points_10.npy')[:n])
-
-    start1 = time.clock()
-    #---before training---
-    (G, client_nodes, server_nodes, annoy_index, targetPoints) = createGraph(n=n, d=10, latentPoints=latentPoints,
-                                                               n_trees=60, n_nbrs=n_nbrs, n_rndms=n_rndms)
-    end1 = time.clock()
-    print('Created G bipartate graph. Elapsed time: ', end1 - start1)
-
+def initializeHelperStructures(client_nodes, server_nodes, max_level):
     #initialize H before the clients are being added iteratively
     H = nx.DiGraph()
     #initialize M digraph of the matching directed from C to S
@@ -282,26 +227,10 @@ def main():
     #initialize levels
     levels = {}
     best_gains = {}
+    return H, M, F, parents_by_level, levels, best_gains
 
-    start2 = time.clock()
-    createESGraph(G, H, parents_by_level, levels, best_gains, M, client_nodes, server_nodes, max_level)
-    end2 = time.clock()
 
-    print('number of matching edges / n : ', len(M.edges()) / n)
-
-    #deepcopy M to F
-    F.add_nodes_from(M.nodes)
-    F.add_edges_from(M.edges)
-    print('Created the initial ES graph. Elapsed time: ', end2 - start2)
-
-    weight_of_matching = 0
-    for (u, v, wt) in M.edges.data('weight'):
-        weight_of_matching = weight_of_matching + wt
-    print('Weight of the found matching: ', weight_of_matching)
-    print('Average weight of an edge in the matching: ', weight_of_matching / len(M.edges()))
-
-    #---at the start of each epoch---
-    start3 = time.clock()
+def restart(G, H, parents_by_level, levels, best_gains, M, client_nodes, server_nodes, max_level, source_node):
     G.clear()
     H.clear()
     #for l in range(max_level + 2):
@@ -317,16 +246,154 @@ def main():
     M.add_nodes_from(client_nodes)
     M.add_nodes_from(server_nodes)
 
+
+def evaluateMatching(M, n):
+    print('number of matching edges / n : ', len(M.edges()) / n)
+
+    weight_of_matching = 0
+    for (u, v, wt) in M.edges.data('weight'):
+        weight_of_matching = weight_of_matching + wt
+    print('Weight of the found matching: ', weight_of_matching)
+    print('Average weight of an edge in the matching: ', weight_of_matching / len(M.edges()))
+
+
+class OOWrapper:
+    def __init__(self, n, d, latentPoints, targetPoints, n_trees, n_nbrs, n_rndms, max_level):
+        self.n = n
+        self.d = d
+        self.latentPoints = latentPoints
+        self.targetPoints = targetPoints
+        self.n_trees = n_trees
+        self.n_nbrs = n_nbrs
+        self.n_rndms = n_rndms
+        self.max_level = max_level
+        self.G, self.client_nodes, self.server_nodes, self.annoy_index = createGraph(
+            n, d, latentPoints, targetPoints, n_trees, n_nbrs, n_rndms)
+        self.H, self.M, self.F, self.parents_by_level, self.levels, self.best_gains = initializeHelperStructures(
+            self.client_nodes, self.server_nodes, self.max_level)
+
+    def buildMatching(self):
+        createESGraph(
+            self.G, self.H, self.parents_by_level, self.levels, self.best_gains,
+            self.M, self.F, self.client_nodes, self.server_nodes, self.max_level)
+
+    def evaluateMatching(self):
+        evaluateMatching(self.M, self.n)
+
+    def restart(self):
+        restart(
+            self.G, self.H, self.parents_by_level, self.levels, self.best_gains,
+            self.M, self.client_nodes, self.server_nodes, self.max_level, source_node=-1)
+
+    def addBatch(self, batch_indices, latentBatch):
+        addBatch(
+            self.G, self.n, self.annoy_index,
+            batch_indices, latentBatch,
+            self.targetPoints, self.H, self.parents_by_level, self.levels, self.best_gains,
+            self.M, self.F, self.max_level, self.n_nbrs, self.n_rndms)
+
+
+# hopefully obsolete
+def main_nonObjectOriented():
+    n = 1000
+    d = 10
+    # max_level = floor(sqrt(n) * sqrt(log(n))) #=735 for n=50000
+    max_level = 4
+    n_nbrs = 10
+    n_rndms = 10
+    source_node = -1
+
+    latentPoints = np.random.normal(0, 1, (n, d))
+    targetPoints = np.random.normal(0, 1, (n, d))
+
+    start = time.clock()
+    G, client_nodes, server_nodes, annoy_index = createGraph(
+                n=n, d=d, latentPoints=latentPoints, targetPoints=targetPoints,
+                n_trees=60, n_nbrs=n_nbrs, n_rndms=n_rndms)
+    print('Created G bipartate graph. Elapsed time: ', time.clock() - start)
+
+    H, M, F, parents_by_level, levels, best_gains = initializeHelperStructures(
+                client_nodes, server_nodes, max_level)
+
+    start = time.clock()
+    createESGraph(G, H, parents_by_level, levels, best_gains, M, F, client_nodes, server_nodes, max_level)
+    print('Created the initial ES graph. Elapsed time: ', time.clock() - start)
+
+    evaluateMatching(M, n)
+
+    start = time.clock()
+    restart(G, H, parents_by_level, levels, best_gains, M, client_nodes, server_nodes, max_level, source_node)
+    print('Rebuilt ES graph. Elapsed time: ', time.clock() - start)
+
     #---simulate training by batches on an epoch---
-    for i in range(n // 200):
-        batch_indices = SortedSet(range(i * 200, (i+1) * 200)) #placeholder
-        #latentBatch = normalize(np.random.normal(0, 1, size=(200, 10))) #placeholder
-        latentBatch = latentPoints[i * 200 : (i+1) * 200]  # placeholder
-        addBatch(G, n, annoy_index, batch_indices, latentBatch, targetPoints, H, parents_by_level, levels, best_gains, M, F, max_level, n_nbrs=n_nbrs, n_rndms=n_rndms)
-    end3 = time.clock()
-    print('Modified on one epoch. Elapsed time: ', end3 - start3)
-    #Todo modify the loss function with M
+    batch_size = 200
+    start = time.clock()
+    for i in range(n // batch_size):
+        print(i)
+        batch_indices = range(i * batch_size, (i+1) * batch_size)
+        newLatentBatch = np.random.normal(0, 1, size=(batch_size, d))
+        latentBatch = latentPoints[i * batch_size : (i+1) * batch_size]
+        latentBatch[:] = newLatentBatch
+        addBatch(
+            G, n, annoy_index, batch_indices, latentBatch, targetPoints,
+            H, parents_by_level, levels, best_gains,
+            M, F, max_level, n_nbrs=n_nbrs, n_rndms=n_rndms)
+        if i == n // batch_size // 2:
+            print("At halftime:")
+            evaluateMatching(M, n)
+
+    print('Modified on one epoch. Elapsed time: ', time.clock() - start)
+
+    evaluateMatching(M, n)
+
+
+def main():
+    n = 1000
+    d = 10
+    # max_level = floor(sqrt(n) * sqrt(log(n))) #=735 for n=50000
+    max_level = 4
+    n_nbrs = 10
+    n_rndms = 10
+    source_node = -1
+
+    latentPoints = np.random.normal(0, 1, (n, d))
+    targetPoints = np.random.normal(0, 1, (n, d))
+
+    start = time.clock()
+    oo = OOWrapper(
+        n=n, d=d, latentPoints=latentPoints, targetPoints=targetPoints,
+        n_trees=60, n_nbrs=n_nbrs, n_rndms=n_rndms, max_level=max_level)
+    print('Created G bipartate graph. Elapsed time: ', time.clock() - start)
+
+    start = time.clock()
+    oo.buildMatching()
+    print('Created the initial ES graph. Elapsed time: ', time.clock() - start)
+
+    oo.evaluateMatching()
+
+    start = time.clock()
+    oo.restart()
+    print('Rebuilt ES graph. Elapsed time: ', time.clock() - start)
+
+    #---simulate training by batches on an epoch---
+    batch_size = 200
+    start = time.clock()
+    for i in range(n // batch_size):
+        print(i)
+        batch_indices = range(i * batch_size, (i+1) * batch_size)
+        newLatentBatch = np.random.normal(0, 1, size=(batch_size, d))
+        latentBatch = latentPoints[i * batch_size : (i+1) * batch_size]
+        latentBatch[:] = newLatentBatch
+        oo.addBatch(batch_indices, latentBatch)
+        if i == n // batch_size // 2:
+            print("At halftime:")
+            oo.evaluateMatching()
+
+    print('Modified on one epoch. Elapsed time: ', time.clock() - start)
+
+    oo.evaluateMatching()
 
 
 if __name__ == "__main__":
     main()
+    # main_nonObjectOriented()
