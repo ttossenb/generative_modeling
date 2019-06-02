@@ -23,11 +23,17 @@ def binMatrix(d):
     return binaries
 
 
-def createGraph(n, d, latentPoints, targetPoints, n_trees, n_nbrs, n_rndms):
+def createEmptyGraph(d, targetPoints, n_trees):
+    n = len(targetPoints)
+
+    G = nx.Graph()
+    G.add_nodes_from(range(n), bipartite=0)
+    G.add_nodes_from(range(n, 2*n), bipartite=1)
+
     #create AnnoyIndex in R^d
-    targetIndex = AnnoyIndex(d)
+    targetIndex = AnnoyIndex(d, metric='euclidean')
     #add each of the target points
-    for i in range(targetPoints.shape[0]):
+    for i in range(n):
         targetIndex.add_item(i, targetPoints[i])
 
     #build the LSH-forest with the target points
@@ -35,12 +41,43 @@ def createGraph(n, d, latentPoints, targetPoints, n_trees, n_nbrs, n_rndms):
 
     #save and load with memory map
     targetIndex.save("LSHForest.ann")
-    loadedIndex = AnnoyIndex(d)
+    loadedIndex = AnnoyIndex(d, metric='euclidean')
     loadedIndex.load("LSHForest.ann")
 
-    #end1 = time.clock()
-    #start2 = time.clock()
+    client_nodes = SortedSet(range(n))
+    server_nodes = SortedSet(range(n, 2*n))
 
+    return G, client_nodes, server_nodes, loadedIndex
+
+
+def initializeHelperStructures(client_nodes, server_nodes, max_level):
+    #initialize H before the clients are being added iteratively
+    H = nx.DiGraph()
+    #initialize M digraph of the matching directed from C to S
+    M = nx.DiGraph()
+    M.add_nodes_from(client_nodes)
+    M.add_nodes_from(server_nodes)
+    #initialize F bipartate graph of forces
+    F = nx.DiGraph()
+    F.add_nodes_from(client_nodes)
+    F.add_nodes_from(server_nodes)
+    #initialize parents, (node, level): SortedSet(parents of the node on the given level)
+    parents_by_level = {}
+    #for l in range(max_level + 2):
+    #    parents_by_level[(source_node, l)] = SortedSet(key=lambda x: x[1])
+    for c in client_nodes:
+        for l in range(max_level + 2):
+            parents_by_level[(c, l)] = SortedSet(key=lambda x: x[1])
+    for s in server_nodes:
+        for l in range(max_level + 2):
+            parents_by_level[(s, l)] = SortedSet(key=lambda x: x[1])
+    #initialize levels
+    levels = {}
+    best_gains = {}
+    return H, M, F, parents_by_level, levels, best_gains
+
+
+def buildGraph(G, latentPoints, targetPoints, annoyIndex, n_nbrs, n_rndms):
     #find the closest neighbours for each latent point and their distances,
     #and also create the biadjacency sparse matrix of the desired bipartite graph
     #initialize with an empty sparse matrix
@@ -49,45 +86,14 @@ def createGraph(n, d, latentPoints, targetPoints, n_trees, n_nbrs, n_rndms):
     closeIndices = np.zeros((latentPoints.shape[0], n_nbrs), dtype=int)
     closeDistances = np.zeros((latentPoints.shape[0], n_nbrs), dtype=np.float16)
 
-    #create the bipartite graph in networkx
-    G = nx.Graph()
-    G.add_nodes_from(range(0, latentPoints.shape[0]), bipartite=0)
-    G.add_nodes_from(range(latentPoints.shape[0], latentPoints.shape[0] + targetPoints.shape[0]), bipartite=1)
-
     for i in range(latentPoints.shape[0]):
-        (closeIndices[i], closeDistances[i]) = loadedIndex.get_nns_by_vector(latentPoints[i], n_nbrs, include_distances=True)
+        (closeIndices[i], closeDistances[i]) = annoyIndex.get_nns_by_vector(latentPoints[i], n_nbrs, include_distances=True)
         for j in range(n_nbrs):
             G.add_edge(i, latentPoints.shape[0] + closeIndices[i, j], weight=closeDistances[i, j])
         for j in range(n_rndms):
             tempRandInt = randint(0, targetPoints.shape[0] - 1)
             G.add_edge(i, latentPoints.shape[0] + tempRandInt,
                        weight=np.linalg.norm(targetPoints[tempRandInt] - latentPoints[i])) #might add the same edge twice
-
-    #end2 = time.clock()
-    #start3 = time.clock()
-
-    #create the biadjacency matrix
-    #arg1=data=(data, (rows, cols))
-    #B = coo_matrix((closeDistances.flatten(), (np.repeat(np.arange(latentPoints.shape[0]), n_nbrs), closeIndices.flatten())))
-
-    #create the bipartite graph in networkx
-    #G = bipartite.from_biadjacency_matrix(B)
-    #G.add_nodes_from(range(n, n + (2 ** d) * k), )
-    print(len(set(G)))
-
-    client_nodes = SortedSet(range(latentPoints.shape[0]))
-    server_nodes = SortedSet(range(latentPoints.shape[0], latentPoints.shape[0] + targetPoints.shape[0]))
-
-    #client_nodes = SortedSet({n for n, d in G.nodes(data=True) if d['bipartite']==0}) #0 .. n-1
-    #server_nodes = SortedSet(set(G) - client_nodes)
-
-    #end3 = time.clock()
-
-    #print("Elapsed time during the initialization of the targets: ", end1-start1)
-    #print("Elapsed time during the initialization of the LSH-forest: ", end2-start2)
-    #print("Elapsed time during the creation of the bipartite graph: ", end3-start3)
-
-    return G, client_nodes, server_nodes, loadedIndex
 
 
 def createESGraph(G, H, parents_by_level, levels, best_gains, M, F, client_nodes, server_nodes, max_level, source_node=-1):
@@ -205,29 +211,6 @@ def addBatch(G, n, annoy_index, batch_indices, latentBatch, targetPoints, H, par
             F.add_edge(c, s)
 
 
-def initializeHelperStructures(client_nodes, server_nodes, max_level):
-    #initialize H before the clients are being added iteratively
-    H = nx.DiGraph()
-    #initialize M digraph of the matching directed from C to S
-    M = nx.DiGraph()
-    M.add_nodes_from(client_nodes)
-    M.add_nodes_from(server_nodes)
-    #initialize F bipartate graph of forces
-    F = nx.DiGraph()
-    #initialize parents, (node, level): SortedSet(parents of the node on the given level)
-    parents_by_level = {}
-    #for l in range(max_level + 2):
-    #    parents_by_level[(source_node, l)] = SortedSet(key=lambda x: x[1])
-    for c in client_nodes:
-        for l in range(max_level + 2):
-            parents_by_level[(c, l)] = SortedSet(key=lambda x: x[1])
-    for s in server_nodes:
-        for l in range(max_level + 2):
-            parents_by_level[(s, l)] = SortedSet(key=lambda x: x[1])
-    #initialize levels
-    levels = {}
-    best_gains = {}
-    return H, M, F, parents_by_level, levels, best_gains
 
 
 def restart(G, H, parents_by_level, levels, best_gains, M, client_nodes, server_nodes, max_level, source_node):
@@ -258,19 +241,21 @@ def evaluateMatching(M, n):
 
 
 class OOWrapper:
-    def __init__(self, n, d, latentPoints, targetPoints, n_trees, n_nbrs, n_rndms, max_level):
+    def __init__(self, n, d, targetPoints, n_trees, n_nbrs, n_rndms, max_level):
         self.n = n
         self.d = d
-        self.latentPoints = latentPoints
         self.targetPoints = targetPoints
         self.n_trees = n_trees
         self.n_nbrs = n_nbrs
         self.n_rndms = n_rndms
         self.max_level = max_level
-        self.G, self.client_nodes, self.server_nodes, self.annoy_index = createGraph(
-            n, d, latentPoints, targetPoints, n_trees, n_nbrs, n_rndms)
+        self.G, self.client_nodes, self.server_nodes, self.annoy_index = createEmptyGraph(
+            self.d, self.targetPoints, self.n_trees)
         self.H, self.M, self.F, self.parents_by_level, self.levels, self.best_gains = initializeHelperStructures(
             self.client_nodes, self.server_nodes, self.max_level)
+
+    def buildGraph(self, latentPoints):
+        buildGraph(self.G, latentPoints, self.targetPoints, self.annoy_index, self.n_nbrs, self.n_rndms)
 
     def buildMatching(self):
         createESGraph(
@@ -307,8 +292,11 @@ def main_nonObjectOriented():
     targetPoints = np.random.normal(0, 1, (n, d))
 
     start = time.clock()
-    G, client_nodes, server_nodes, annoy_index = createGraph(
-                n=n, d=d, latentPoints=latentPoints, targetPoints=targetPoints,
+    G = nx.Graph()
+    G.add_nodes_from(range(n), bipartite=0)
+    G.add_nodes_from(range(n, 2*n), bipartite=1)
+    client_nodes, server_nodes, annoy_index = createGraph(
+                G=G, n=n, d=d, latentPoints=latentPoints, targetPoints=targetPoints,
                 n_trees=60, n_nbrs=n_nbrs, n_rndms=n_rndms)
     print('Created G bipartate graph. Elapsed time: ', time.clock() - start)
 
@@ -356,13 +344,38 @@ def main():
     n_rndms = 10
     source_node = -1
 
+    np.random.seed(1)
+
     latentPoints = np.random.normal(0, 1, (n, d))
     targetPoints = np.random.normal(0, 1, (n, d))
 
     start = time.clock()
     oo = OOWrapper(
-        n=n, d=d, latentPoints=latentPoints, targetPoints=targetPoints,
+        n=n, d=d, targetPoints=targetPoints,
         n_trees=60, n_nbrs=n_nbrs, n_rndms=n_rndms, max_level=max_level)
+
+
+
+    # IN PROGRESS: trying to make it work without a full oo.buildGraph(latentPoints) first.
+    oo.restart()
+    batch_size = 200
+    start = time.clock()
+    for i in range(n // batch_size):
+        print(i)
+        batch_indices = range(i * batch_size, (i+1) * batch_size)
+        newLatentBatch = np.random.normal(0, 1, size=(batch_size, d))
+        latentBatch = latentPoints[i * batch_size : (i+1) * batch_size]
+        latentBatch[:] = newLatentBatch
+        oo.addBatch(batch_indices, latentBatch)
+        if i == n // batch_size // 2:
+            print("At halftime:")
+            oo.evaluateMatching()
+
+    oo.evaluateMatching()
+
+
+
+    oo.buildGraph(latentPoints)
     print('Created G bipartate graph. Elapsed time: ', time.clock() - start)
 
     start = time.clock()
