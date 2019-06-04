@@ -1,6 +1,5 @@
 import sys # for FlushCallback
 import matplotlib
-matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from keras.callbacks import LearningRateScheduler, Callback
 from keras import backend as K
