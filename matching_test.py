@@ -1,7 +1,10 @@
 import numpy as np
 import time
+import networkx as nx
 
 import NAT_weighted_graph
+import NAT_straight
+import autoencoder
 
 
 def main():
@@ -79,22 +82,45 @@ def natBaseline(latentPoints, targetPoints, batch_size, epoch_count):
             matching[latentIndices] = matching[latentIndices[localMatching]]
 
 
+def natBaselineOO(latentPoints, targetPoints, batch_size, epoch_count):
+    oo = NAT_straight.OOWrapper(latentPoints=latentPoints, targetPoints=targetPoints)
+    print("start", 0, "weight", oo.evaluateMatching())
+    for epoch in range(epoch_count):
+        oo.doEpoch(batch_size)
+        print("epoch", epoch + 1, "weight", oo.evaluateMatching())
+
+
 def natBaselineTest():
     n = 1000
     d = 10
 
     np.random.seed(1)
     latentPoints = np.random.normal(0, 1, (n, d))
-    # targetPoints = np.random.normal(0, 1, (n, d))
-    classes = 10
-    targetPoints = np.random.normal(0, 1.0 / classes, (classes, n // classes, d))
-    targetPoints += np.linspace(0, 1, classes)[:, np.newaxis, np.newaxis]
-    targetPoints = targetPoints.reshape((n, d))
+    targetPoints = np.random.normal(0, 1, (n, d))
+    # classes = 10
+    # targetPoints = np.random.normal(0, 1.0 / classes, (classes, n // classes, d))
+    # targetPoints += np.linspace(0, 1, classes)[:, np.newaxis, np.newaxis]
+    # targetPoints = targetPoints.reshape((n, d))
 
-    print("First the smart one.")
+    print("Classic minibatch-oriented NaT.")
+    batch_size = 50
+    epoch_count = 10
 
-    n_nbrs = 100
-    n_rndms = 100
+    natBaselineOO(latentPoints, targetPoints, batch_size, epoch_count)
+
+    print("Full bloom matching on sparse graph.")
+    G = nx.Graph()
+    G.add_nodes_from(range(n), bipartite=0)
+    G.add_nodes_from(range(n, 2 * n), bipartite=1)
+
+    # TODO n_nbrs n_rndms are hardwired now.
+    matching = autoencoder.updateBipartiteGraph(range(n), latentPoints, targetPoints, G, annoyIndex=None)
+    print("Weight:", autoencoder.weight_of_matching(matching, latentPoints, targetPoints))
+
+    print("Toszi's algorithm.")
+
+    n_nbrs = 50
+    n_rndms = 0
     max_level = 4
     oo = NAT_weighted_graph.OOWrapper(
         n=n, d=d, latentPoints=latentPoints, targetPoints=targetPoints, n_trees=60, n_nbrs=n_nbrs, n_rndms=n_rndms, max_level=max_level)
@@ -102,11 +128,8 @@ def natBaselineTest():
     oo.evaluateMatching()
 
 
-    print("Now the classic minibatch-oriented.")
-    batch_size = 50
-    epoch_count = 10
 
-    natBaseline(latentPoints, targetPoints, batch_size, epoch_count)
+
 
 
 def mainOO():

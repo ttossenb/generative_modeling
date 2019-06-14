@@ -21,8 +21,9 @@ import callbacks
 
 from networks import dense, conv
 
-import NAT_graph
-
+import NAT_weighted_graph
+import NAT_straight
+import NAT_graph # just for NAT_graph.buildServers(), mostly obsoleted.
 
 # TODO move to vis.py
 def plot_matching(latents, nats, matching, filename):
@@ -44,15 +45,6 @@ def plot_matching(latents, nats, matching, filename):
     plt.close()
 
 
-def pairwiseSquaredDistances(clients, servers):
-    cL2S = np.sum(clients ** 2, axis=-1)
-    sL2S = np.sum(servers ** 2, axis=-1)
-    cL2SM = np.tile(cL2S, (len(servers), 1))
-    sL2SM = np.tile(sL2S, (len(clients), 1))
-    squaredDistances = cL2SM + sL2SM.T - 2.0 * servers.dot(clients.T)
-    return squaredDistances.T
-
-
 def weight_of_matching(matching, latentPositions, natPositions):
     w = 0.0
     n = len(latentPositions)
@@ -65,7 +57,7 @@ def weight_of_matching(matching, latentPositions, natPositions):
 
 # builds the whole matrix from scratch, disregards dirties, bipartite, annoyIndex.
 def updateBipartiteGraphFromScratch(latentPositions, natPositions):
-    distances = np.sqrt(pairwiseSquaredDistances(latentPositions, natPositions))
+    distances = np.sqrt(NAT_straight.pairwiseSquaredDistances(latentPositions, natPositions))
     n = distances.shape[0]
     bipartite = nx.Graph()
     bipartite.add_nodes_from(range(n), bipartite=0)
@@ -93,27 +85,27 @@ def updateBipartiteGraph(dirties, latentPositions, natPositions, bipartite, anno
     totalChange = 0.0
     changed = 0
 
-    distances = np.sqrt(pairwiseSquaredDistances(latentPositions, natPositions))
+    use_annoy = False
+    if not use_annoy:
+        distances = np.sqrt(NAT_straight.pairwiseSquaredDistances(latentPositions[dirties], natPositions))
 
-    for i in dirties:
-        latent = latentPositions[i]
+    for dirty_index, dirty in enumerate(dirties):
+        latent = latentPositions[dirty]
 
-        
-        closeIndices = np.argsort(distances[i])[:n_nearest]
-        closeDistances = []
-        for j in closeIndices:
-            closeDistances.append(distances[i][j]) 
-
-        '''
-        closeIndices, closeDistances = annoyIndex.get_nns_by_vector(
-            latent, n_nearest, include_distances=True)
-        '''
+        if use_annoy:
+            closeIndices, closeDistances = annoyIndex.get_nns_by_vector(
+                latent, n_nearest, include_distances=True)
+        else:
+            closeIndices = np.argsort(distances[dirty_index])[:n_nearest]
+            closeDistances = []
+            for j in closeIndices:
+                closeDistances.append(distances[dirty_index][j])
 
         oldNeighbors = None
-        if i in bipartite:
-            oldNeighbors = set([nei for nei, datadict in bipartite.adj[i].items() if datadict['near']])
-            bipartite.remove_node(i)
-        bipartite.add_node(i, bipartite=0)
+        if dirty in bipartite:
+            oldNeighbors = set([nei for nei, datadict in bipartite.adj[dirty].items() if datadict['near']])
+            bipartite.remove_node(dirty)
+        bipartite.add_node(dirty, bipartite=0)
         newNeighbors = {closeNatIndex + n for closeNatIndex in closeIndices}
         if oldNeighbors is not None and len(oldNeighbors) > 0:
             inters = len(newNeighbors.intersection(oldNeighbors))
@@ -123,11 +115,11 @@ def updateBipartiteGraph(dirties, latentPositions, natPositions, bipartite, anno
         for j in range(len(closeIndices)):
             closeNatIndex = closeIndices[j]
             dist = closeDistances[j]
-            bipartite.add_edge(i, closeNatIndex + n, weight= dist * (-1), near=True) # minus because maximum weight
+            bipartite.add_edge(dirty, closeNatIndex + n, weight= dist * (-1), near=True) # minus because maximum weight
         randomIndices = np.random.choice(n, size=n_random, replace=False)
         for natIndex in sorted(randomIndices):
             dist = np.linalg.norm(natPositions[natIndex] - latent)
-            bipartite.add_edge(i, natIndex + n, weight= dist * (-1), near=False) # minus because maximum weight
+            bipartite.add_edge(dirty, natIndex + n, weight= dist * (-1), near=False) # minus because maximum weight
     print("Average change", totalChange / (changed+0.01), changed, len(latentPositions))
 
     print("nodes", bipartite.number_of_nodes(), "edges", bipartite.number_of_edges())
@@ -144,10 +136,6 @@ def updateBipartiteGraph(dirties, latentPositions, natPositions, bipartite, anno
 
     sys.stdout.flush()
     return m2
-
-
-def hashSample(sample):
-    return hash(tuple(sample.flatten()))
 
 
 def run(args, data):
@@ -207,48 +195,42 @@ def run(args, data):
     iters_in_epoch = x_train.shape[0] // args.batch_size
 
     n = len(x_train)
+    d = args.latent_dim
+
     print("creating bipartite graph and annoy index.")
     natPositions, bipartite, annoyIndex = NAT_graph.buildServers(
         n, args.latent_dim)
     print("done.")
+    # natPositions = np.random.normal(0, 1, (n, d))
 
-    latentPositions = np.zeros_like(natPositions)
-    latentPositions.fill(np.nan)
+    # latentPositions = np.zeros_like(natPositions) ; latentPositions.fill(np.nan)
+    latentPositions = np.random.normal(0, 1, (n, d)) # not true, just placeholder
 
-    # TODO rewrite with fixed x_train, and x_batch = x_train[permutation[i * bs: (i + 1) * bs]]
-    matching = [None for _ in range(n)]
-    nat_force_active = False
+    oo = NAT_straight.OOWrapper(latentPoints=latentPositions, targetPoints=natPositions)
+
+    matching_active = True # no warmup for matching, but warmup for nat_loss
+    matching = np.arange(n, dtype=int) # hopefully will be overwritten before nat_loss_weight_variable>0 kicks in
 
     for epoch in range(args.nb_epoch):
         random_permutation = np.random.permutation(n)
 
-        
-        if epoch % 10 == 0 and epoch > 20:
-            K.set_value(nat_loss_weight_variable, 10 * (epoch-30))
-            nat_force_active = True
-
-        if epoch % 10 != 0 and epoch > 20:
-            nat_force_active = False
+        # TODO actually there are two different kinds of warmups:
+        # nat_loss_weight_variable warmup lets the system do its thing without disruption.
+        # matching_active warmup is strictly a performance optimization.
+        warmup = 10
+        # if epoch >= warmup:
+        #     matching_active = True
+        if epoch >= warmup:
+            K.set_value(nat_loss_weight_variable, 2 * (epoch - warmup))
+        else:
+            K.set_value(nat_loss_weight_variable, 0.0)
 
         for i in range(iters_in_epoch):
             bs = args.batch_size
             indices = random_permutation[i * bs: (i + 1) * bs]
             x_batch = x_train[indices]
 
-            if K.get_value(nat_loss_weight_variable) == 0:
-                nat_indices = [matching[latent_index] if matching[latent_index] is not None else np.random.randint(n)
-                for latent_index in indices]
-            else:
-                nat_indices = []
-                numnone = 0
-                for latent_index in indices:
-                    assert numnone < 0.9 * n, "Sok None"
-                    if matching[latent_index] is not None:
-                        nat_indices.append(matching[latent_index])
-                    else:
-                        nat_indices.append(np.random.randint(n))
-                        numnone += 1
-                print("number of none ", numnone)    
+            nat_indices = matching[indices]
 
             nat_batch = natPositions[nat_indices]
 
@@ -261,7 +243,7 @@ def run(args, data):
 
             latentPositions[indices] = currentLatentPositions
 
-            if not nat_force_active:
+            if not matching_active:
                 continue
 
             # if you do both, you can compare. normally you'd only do_approx.
@@ -274,8 +256,14 @@ def run(args, data):
                 do_approx = False
             else:
                 do_exact = False
-                do_approx = True    
+                do_approx = True
             '''
+
+            do_smart = True
+            if do_smart:
+                oo.updateBatch(indices, currentLatentPositions)
+                print("epoch", epoch, "nat matching weight", oo.evaluateMatching())
+                matching = oo.matching
 
             do_exact = False
             if do_exact:
@@ -284,8 +272,9 @@ def run(args, data):
                 print("exact  running time", time.clock() - start)
                 print("exact ", len(matching_exact ),
                     weight_of_matching(matching_exact,  latentPositions, natPositions), matching_exact[:10])
-                matching = matching_exact
-            do_approx = True
+                matching = np.array(matching_exact)
+                assert matching.dtype == np.int64
+            do_approx = False
             if do_approx:
                 start = time.clock()
                 matching_approx = updateBipartiteGraph(indices, latentPositions, natPositions, bipartite, annoyIndex)
@@ -294,9 +283,13 @@ def run(args, data):
                     weight_of_matching(matching_approx, latentPositions, natPositions), matching_approx[:10])
                 matching = matching_approx
 
-            # WARNING don't put functionality here, skipped if not nat_force_active.
+            # WARNING don't put functionality here, skipped if not matching_active.
 
-        plot_matching(latentPositions, natPositions, matching, "%s/matching-%03d" % (args.outdir, epoch))
+        max_nr_of_points = 1000
+        matchingTruncated = matching[:max_nr_of_points]
+        latentPositionsTruncated = latentPositions[:max_nr_of_points]
+        natPositionsTruncated = natPositions[matchingTruncated]
+        plot_matching(latentPositionsTruncated, natPositionsTruncated, range(len(latentPositionsTruncated)), "%s/matching-%03d" % (args.outdir, epoch))
 
         currentEpochPos = models.encoder.predict(images, args.batch_size)
         z_sampled, z_mean, z_logvar = currentEpochPos
@@ -304,53 +297,10 @@ def run(args, data):
         # TODO move ellipse vis to its own function and vis.py
         inum = len(images)
 
-        close = []
-        numclose = 10
-
-        distcent = []
-        numcent = args.trainSize // 2
-
-        for i in range(inum):
-            distcent.append(np.linalg.norm(z_mean[i]))
-            distcent = sorted(distcent)  
-            dist = []
-            for j in range(inum):
-                dist.append(np.linalg.norm(z_mean[i] - z_mean[j]))
-            dist = sorted(dist)
-            close.append(dist[numclose])
-
-        centered = distcent[0]
-        radc = distcent[numcent]
-
-        rad = sum(close) / len(close)
-        print('clustering radius: ', rad )
-
-        av = [[] for _ in range(10)]
-
-        allav = []
-
-        for i in range(inum):
-            label = labels[i]
-            allnum = 0
-            samenum = 0
-            for j in range(inum):
-                if(np.linalg.norm(z_mean[i] - z_mean[j]) < rad):
-                    allnum += 1
-                    if(labels[i] == labels[j]):    
-                        samenum += 1
-            
-            av[label].append((samenum, allnum))            
-            allav.append((samenum, allnum))
-
-        for l in range(10):
-            ratios = np.array([samenum / allnum for (samenum, allnum) in av[l]])
-            print("clustering of label %d: %f" % (l, ratios.mean()))
-        ratios = np.array([samenum / allnum for (samenum, allnum) in allav])
-        print("global clustering: %f" % ratios.mean())
-
+        minimal_radius = 0.05
         ells = [Ellipse(xy=z_mean[i],
-                        width=2 * np.exp(z_logvar[i][0]),
-                        height=2 * np.exp(z_logvar[i][1]))
+                        width =2 * np.clip(np.exp(z_logvar[i][0]), minimal_radius, None),
+                        height=2 * np.clip(np.exp(z_logvar[i][1]), minimal_radius, None))
                 for i in range(inum)]
 
         fig, ax = plt.subplots(subplot_kw={'aspect': 'equal'})
@@ -420,6 +370,53 @@ def run(args, data):
         print("\n", end='')
 
         imageDisplayCallback.on_epoch_end(epoch, logs=None)
+
+        print("skipping clustering code until review.")
+        continue
+
+        close = []
+        numclose = 10
+
+        distcent = []
+
+        for i in range(inum):
+            distcent.append(np.linalg.norm(z_mean[i]))
+            distcent = sorted(distcent)  
+            dist = []
+            for j in range(inum):
+                dist.append(np.linalg.norm(z_mean[i] - z_mean[j]))
+            dist = sorted(dist)
+            close.append(dist[numclose])
+
+        centered = distcent[0]
+
+        rad = sum(close) / len(close)
+        print('clustering radius: ', rad )
+
+        av = [[] for _ in range(10)]
+
+        allav = []
+
+        for i in range(inum):
+            label = labels[i]
+            allnum = 0
+            samenum = 0
+            for j in range(inum):
+                if(np.linalg.norm(z_mean[i] - z_mean[j]) < rad):
+                    allnum += 1
+                    if(labels[i] == labels[j]):    
+                        samenum += 1
+            
+            av[label].append((samenum, allnum))            
+            allav.append((samenum, allnum))
+
+        for l in range(10):
+            ratios = np.array([samenum / allnum for (samenum, allnum) in av[l]])
+            print("clustering of label %d: %f" % (l, ratios.mean()))
+        ratios = np.array([samenum / allnum for (samenum, allnum) in allav])
+        print("global clustering: %f" % ratios.mean())
+
+
 
     # save models
     model_IO.save_autoencoder(models, args)
