@@ -378,12 +378,15 @@ def run(args, data):
         labelset = np.unique(labels)
         ratios_per_labels = {label: [] for label in labelset}
         ratios = []
+        confusion_matrix = np.zeros((10, 10), dtype=int)
 
         for i in range(inum):
             label = labels[i]
             distances = np.linalg.norm(z_mean - z_mean[i], axis=1)
             nearests = np.argsort(distances)[:numclose]
             nearest_labels = labels[nearests]
+            for n_l in nearest_labels:
+                confusion_matrix[label, n_l] += 1
             nr_of_same_label = sum(nearest_labels == label)
             ratio = float(nr_of_same_label) / numclose
             ratios.append(ratio)
@@ -392,6 +395,8 @@ def run(args, data):
         for l in labelset:
             print("clustering of label %d: %f" % (l, np.mean(np.array(ratios_per_labels[l]))))
         print("global clustering: %f" % np.mean(np.array(ratios)))
+        print("confusion:")
+        print(confusion_matrix)
 
 
     # save models
