@@ -371,51 +371,27 @@ def run(args, data):
 
         imageDisplayCallback.on_epoch_end(epoch, logs=None)
 
-        print("skipping clustering code until review.")
-        continue
-
         close = []
         numclose = 10
 
         distcent = []
-
-        for i in range(inum):
-            distcent.append(np.linalg.norm(z_mean[i]))
-            distcent = sorted(distcent)  
-            dist = []
-            for j in range(inum):
-                dist.append(np.linalg.norm(z_mean[i] - z_mean[j]))
-            dist = sorted(dist)
-            close.append(dist[numclose])
-
-        centered = distcent[0]
-
-        rad = sum(close) / len(close)
-        print('clustering radius: ', rad )
-
-        av = [[] for _ in range(10)]
-
-        allav = []
+        labelset = np.unique(labels)
+        ratios_per_labels = {label: [] for label in labelset}
+        ratios = []
 
         for i in range(inum):
             label = labels[i]
-            allnum = 0
-            samenum = 0
-            for j in range(inum):
-                if(np.linalg.norm(z_mean[i] - z_mean[j]) < rad):
-                    allnum += 1
-                    if(labels[i] == labels[j]):    
-                        samenum += 1
-            
-            av[label].append((samenum, allnum))            
-            allav.append((samenum, allnum))
+            distances = np.linalg.norm(z_mean - z_mean[i], axis=1)
+            nearests = np.argsort(distances)[:numclose]
+            nearest_labels = labels[nearests]
+            nr_of_same_label = sum(nearest_labels == label)
+            ratio = float(nr_of_same_label) / numclose
+            ratios.append(ratio)
+            ratios_per_labels[label].append(ratio)
 
-        for l in range(10):
-            ratios = np.array([samenum / allnum for (samenum, allnum) in av[l]])
-            print("clustering of label %d: %f" % (l, ratios.mean()))
-        ratios = np.array([samenum / allnum for (samenum, allnum) in allav])
-        print("global clustering: %f" % ratios.mean())
-
+        for l in labelset:
+            print("clustering of label %d: %f" % (l, np.mean(np.array(ratios_per_labels[l]))))
+        print("global clustering: %f" % np.mean(np.array(ratios)))
 
 
     # save models
