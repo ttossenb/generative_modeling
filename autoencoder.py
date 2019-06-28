@@ -322,59 +322,7 @@ def run(args, data):
         
         ax.legend([c[0] for c in colored], range(10), loc="best")
 
-
-        '''
-
-        blu = []
-        g = []
-        r = []
-        c = []
-        m = []
-        y = []
-        bla = []
-        o = []
-        t = []
-        br = []
-
-        for i in range(inum):
-            ax.add_artist(ells[i])
-            ells[i].set_clip_box(ax.bbox)
-            ells[i].set_alpha(0.5)
-            if labels[i] == 0:
-                ells[i].set_facecolor('blue')
-                blu.append(ells[i])
-            elif labels[i] == 1:
-                ells[i].set_facecolor('green')
-                g.append(ells[i])
-            elif labels[i] == 2:
-                ells[i].set_facecolor('red')
-                r.append(ells[i])
-            elif labels[i] == 3:
-                ells[i].set_facecolor('cyan')
-                c.append(ells[i])
-            elif labels[i] == 4:
-                ells[i].set_facecolor('magenta')
-                m.append(ells[i])
-            elif labels[i] == 5:
-                ells[i].set_facecolor('yellow')
-                y.append(ells[i])
-            elif labels[i] == 6:
-                ells[i].set_facecolor('black')
-                bla.append(ells[i])
-            elif labels[i] == 7:
-                ells[i].set_facecolor('orange')
-                o.append(ells[i])
-            elif labels[i] == 8:
-                ells[i].set_facecolor('teal')
-                t.append(ells[i])
-            else:
-                ells[i].set_facecolor('brown')
-                br.append(ells[i])
         
-        ax.legend((blu[0], g[0], r[0], c[0], m[0], y[0], bla[0], o[0], t[0], br[0]),
-            (0, 1, 2, 3, 4, 5, 6, 7, 8, 9), loc="best")
-        '''
-
         plt.xlim(-5,5)
         plt.ylim(-5,5)
 
