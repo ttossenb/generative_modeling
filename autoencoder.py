@@ -4,6 +4,7 @@ from keras.layers import Dense, Activation, Reshape, Input, Lambda
 from keras import backend as K
 from keras.models import Model
 import numpy as np
+
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 from matplotlib.lines import Line2D

@@ -2,6 +2,9 @@ import numpy as np
 import keras
 import tensorflow as tf
 
+import matplotlib
+matplotlib.use('Agg')
+
 import params
 import data
 
@@ -17,11 +20,10 @@ print("\n\n")
 
 # limit memory usage
 print("Keras version: ", keras.__version__)
-if keras.backend._BACKEND == "tensorflow":
-    from keras.backend.tensorflow_backend import set_session
-    config = tf.ConfigProto()
-    config.gpu_options.per_process_gpu_memory_fraction = args.memory_share
-    set_session(tf.Session(config=config))
+from keras.backend.tensorflow_backend import set_session
+config = tf.ConfigProto()
+config.gpu_options.per_process_gpu_memory_fraction = args.memory_share
+set_session(tf.Session(config=config))
 
 # load data
 data_object = data.load(args.dataset, shape=args.shape, color=args.color)
