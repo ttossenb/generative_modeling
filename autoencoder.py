@@ -305,6 +305,25 @@ def run(args, data):
 
         fig, ax = plt.subplots(subplot_kw={'aspect': 'equal'})
 
+       
+        colored = [[] for _ in range(10)]
+
+        colors = ['blue', 'green', 'red', 'cyan', 'magenta', 'yellow', 'black', 'orange', 'teal', 'brown']
+
+        for i in range(inum):
+            ax.add_artist(ells[i])
+            ells[i].set_clip_box(ax.bbox)
+            ells[i].set_alpha(0.5)
+            for j in range(10):
+                if labels[i] == j:
+                    ells[i].set_facecolor(colors[j])
+                    colored[j].append(ells[i])
+        
+        ax.legend([c[0] for c in colored], range(10), loc="best")
+
+
+        '''
+
         blu = []
         g = []
         r = []
@@ -350,9 +369,10 @@ def run(args, data):
             else:
                 ells[i].set_facecolor('brown')
                 br.append(ells[i])
-
+        
         ax.legend((blu[0], g[0], r[0], c[0], m[0], y[0], bla[0], o[0], t[0], br[0]),
             (0, 1, 2, 3, 4, 5, 6, 7, 8, 9), loc="best")
+        '''
 
         plt.xlim(-5,5)
         plt.ylim(-5,5)
