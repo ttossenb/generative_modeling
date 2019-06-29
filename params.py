@@ -48,13 +48,14 @@ def getArgs():
     parser.add_argument('--encoder_wd', dest="encoder_wd", type=float, default=0.0, help="Weight decay param for the encoder")
     parser.add_argument('--encoder_use_bn', dest="encoder_use_bn", default="False", help="True/False: Use batch norm in encoder")
     parser.add_argument('--encoder_dims', dest="encoder_dims", default="1000,1000", help="Widths of encoder layers")
+    parser.add_argument('--encoder_conv_channels', dest="encoder_conv_channels", help="Encoder conv filter counts")
 
-    
     # generator
     parser.add_argument('--generator', dest="generator", default="dense", help="generator type")
     parser.add_argument('--generator_wd', dest="generator_wd", type=float, default=0.0, help="Weight decay param for generator")
     parser.add_argument('--generator_use_bn', dest="generator_use_bn", default="False", help="True/False> Use batch norm in generator")
     parser.add_argument('--generator_dims', dest='generator_dims', default="1000,1000", help='Widths of generator layers') 
+    parser.add_argument('--generator_conv_channels', dest="generator_conv_channels", help="Generator conv filter counts")
 
     # discriminator
     parser.add_argument('--discriminator', dest="discriminator", default="dense", help="discriminator type")
