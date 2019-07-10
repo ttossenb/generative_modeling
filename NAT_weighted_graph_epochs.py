@@ -247,11 +247,11 @@ def main():
     n = 50000
     d = 10
     #max_level = floor(sqrt(n) * sqrt(log(n))) #=735 for n=50000
-    max_level = 4
+    max_level = 6
     n_nbrs = 11
     n_rndms = 0
     source_node = -1
-    n_epochs = 2
+    n_epochs = 1
     batch_size = 200
 
     #placeholder for input
@@ -276,7 +276,7 @@ def main():
     #initialize levels
     levels = {}
     best_gains = {}
-    #free_gains = SortedSet(key=lambda x: x[1])
+    free_gains = SortedSet(key=lambda x: x[1])
     #initialize parents, (node, level): SortedSet(parents of the node on the given level)
     parents_by_level = {}
     #for l in range(max_level + 2):
@@ -311,11 +311,28 @@ def main():
         print('Weight of the found matching: ', weight_of_matching)
         print('Average weight of an edge in the matching: ', weight_of_matching / len(M.edges()))
 
-        #for s in server_nodes:
-        #    if s not in M.nodes():
-        #        free_gains.add((s, parents_by_level[(s, levels[s] - 1)][1]))
-        #print(len(free_gains))
-        #print(free_gains[0], free_gains[1], free_gains[2], free_gains[3], free_gains[4])
+        improvable = True
+        while improvable:
+            for s in server_nodes:
+                if levels[s] > 1 and levels[s] <= max_level:
+                    #print('s: ', s)
+                    #print(levels[s])
+                    #print((s, parents_by_level[(s, levels[s] - 1)][0][1]))
+                    free_gains.add((s, parents_by_level[(s, levels[s] - 1)][0][1]))
+            #print(len(free_gains))
+            print(free_gains[0])
+            if free_gains[0][1] >= 0:
+                improvable = False
+            else:
+                (path, found_short_path) = ES.findSAP(H, parents_by_level, levels, best_gains, free_gains[0][0])
+                ES.applyServerPath(H, parents_by_level, levels, best_gains, M, path, max_level, found_short_path, source_node)
+            free_gains.clear()
+
+        weight_of_matching = 0
+        for (u, v, wt) in M.edges.data('weight'):
+            weight_of_matching = weight_of_matching + wt
+        print('Weight of the improved matching: ', weight_of_matching)
+        print('Average weight of an edge in the matching: ', weight_of_matching / len(M.edges()))
 
         #reset for the next epoch
         G.clear()

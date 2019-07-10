@@ -107,7 +107,7 @@ def addOneClient(G, H, parents_by_level, levels, best_gains, c, source_node, max
     #if levels[c] == 4: print(levels[c])
 
 
-def findSAP(H, parents_by_level, levels, best_gains, c, source_node):
+def findSAP(H, parents_by_level, levels, best_gains, c):
     if len(parents_by_level[(c, levels[c] - 1)]) > 0: #exists a SAP to c with length <= max_level
         found_short_path = True
         p = c
@@ -163,6 +163,26 @@ def applyPath(H, parents_by_level, levels, best_gains, M, path, max_level, found
         deleteEdge(H, parents_by_level, levels, best_gains, source_node, path[0], max_level)
 
 
+def applyServerPath(H, parents_by_level, levels, best_gains, M, path, max_level, found_short_path, source_node):
+    if found_short_path:
+        path_length = len(path) - 1
+        #if path_length > 2: print(path_length)
+        for i in range(path_length, 0, -2): #path_length .. 2, since path_length is even
+            M.add_edge(path[i-1], path[i-2], weight=H.edges[path[i-2], path[i-1]]['weight'])
+            #print('added matching edge: ', path[i], ', ', path[i-1])
+            M.remove_edge(path[i-1], path[i])
+            #print('removed matching edge: ', path[i-2], ', ', path[i-1])
+
+        for i in range(path_length, 0, -1): #path_length .. 2
+            H.add_edge(path[i], path[i-1], weight=-(H.edges[path[i-1], path[i]]['weight']))
+            parents_by_level[(path[i-1], levels[path[i]])].add((path[i], parents_by_level[(path[i], levels[path[i]] - 1)][0][1] + H.edges[path[i], path[i-1]]['weight']))
+            #print('added reversed path edge: ', path[i], ', ', path[i-1])
+            deleteEdge(H, parents_by_level, levels, best_gains, path[i-1], path[i], max_level)
+            #print('removed path edge: ', path[i-1], ', ', path[i])
+        #print('path: ', path)
+        deleteEdge(H, parents_by_level, levels, best_gains, source_node, path[0], max_level)
+
+
 def addClients(G, clients_to_add, H, parents_by_level, levels, best_gains, M, source_node, max_level):
     for c in clients_to_add:
         #print('client to add: ', c)
@@ -182,7 +202,7 @@ def addClients(G, clients_to_add, H, parents_by_level, levels, best_gains, M, so
         #    if levels[i] == 5:
         #        print("lvl 5: ", i)
         #print("server level distribution", lvldistr)
-        (path, found_short_path) = findSAP(H, parents_by_level, levels, best_gains, c, source_node)
+        (path, found_short_path) = findSAP(H, parents_by_level, levels, best_gains, c)
         #print('found alternating path: ', path)
         #print('applying path')
         applyPath(H, parents_by_level, levels, best_gains, M, path, max_level, found_short_path, source_node)
