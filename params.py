@@ -40,6 +40,7 @@ def getArgs():
     
     # architecture
     parser.add_argument('--sampling', dest="sampling", default="False", help="True/False: use sampling")
+    parser.add_argument('--zz', dest="zz", default="False", help="True/False: use mse(z, e(d(z))")
     parser.add_argument('--activation', dest="activation", default="relu", help="activation function")
     parser.add_argument('--latent_dim', dest="latent_dim", type=int, default=3, help="Latent dimension")
 

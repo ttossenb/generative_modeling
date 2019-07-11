@@ -44,6 +44,9 @@ def loss_factory(loss_names, args, loss_features=None, combine_with_weights=True
     def nat_loss(x, x_decoded):
         return K.mean(K.square(loss_features.z_mean - loss_features.z_nat))
 
+    def zz_loss(x, x_decoded):
+        return K.mean(K.square(loss_features.z_input - loss_features.z_prime))
+
     losses = []
     for loss in loss_names:
         losses.append(locals().get(loss))

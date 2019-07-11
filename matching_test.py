@@ -142,7 +142,7 @@ def mainOO():
     source_node = -1
 
     latentPoints = np.random.normal(0, 1, (n, d))
-    targetPoints = np.random.normal(0, 1, (n, d))
+    targetPoints = np.random.normal(0, 1, (n, d)) + 1
 
     start = time.clock()
     oo = NAT_weighted_graph.OOWrapper(
