@@ -25,7 +25,7 @@ def binMatrix(d):
 
 def createGraph(n, d, latentPoints, targetPoints, n_trees, n_nbrs, n_rndms):
     #create AnnoyIndex in R^d
-    targetIndex = AnnoyIndex(d, metric='euclidean')
+    targetIndex = AnnoyIndex(d, metric='angular')
     #add each of the target points
     for i in range(targetPoints.shape[0]):
         targetIndex.add_item(i, targetPoints[i])
@@ -35,7 +35,7 @@ def createGraph(n, d, latentPoints, targetPoints, n_trees, n_nbrs, n_rndms):
 
     #save and load with memory map
     targetIndex.save("LSHForest.ann")
-    loadedIndex = AnnoyIndex(d, metric='euclidean')
+    loadedIndex = AnnoyIndex(d, metric='angular')
     loadedIndex.load("LSHForest.ann")
 
     #end1 = time.clock()
@@ -356,8 +356,10 @@ def main():
     n_rndms = 0
     source_node = -1
 
-    latentPoints = normalize(np.random.normal(0, 1, (n, d)))
-    targetPoints = normalize(np.random.normal(0, 1, (n, d)))
+    #latentPoints = normalize(np.random.normal(0, 1, (n, d)))
+    #targetPoints = normalize(np.random.normal(0, 1, (n, d)))
+    latentPoints = np.random.normal(0, 1, (n, d))
+    targetPoints = np.random.normal(0, 1, (n, d))
 
     start = time.clock()
     oo = OOWrapper(
