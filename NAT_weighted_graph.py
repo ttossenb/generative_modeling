@@ -356,8 +356,8 @@ def main():
     n_rndms = 0
     source_node = -1
 
-    latentPoints = np.random.normal(0, 1, (n, d))
-    targetPoints = np.random.normal(0, 1, (n, d))
+    latentPoints = normalize(np.random.normal(0, 1, (n, d)))
+    targetPoints = normalize(np.random.normal(0, 1, (n, d)))
 
     start = time.clock()
     oo = OOWrapper(
@@ -395,5 +395,5 @@ def main():
 
 
 if __name__ == "__main__":
-    #main()
-    main_nonObjectOriented()
+    main()
+    #main_nonObjectOriented()
