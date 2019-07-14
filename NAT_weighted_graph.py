@@ -295,22 +295,22 @@ class OOWrapper:
 
 # hopefully obsolete
 def main_nonObjectOriented():
-    n = 1000
+    n = 50000
     d = 10
     # max_level = floor(sqrt(n) * sqrt(log(n))) #=735 for n=50000
     max_level = 4
-    n_nbrs = 10
-    n_rndms = 10
+    n_nbrs = 11
+    n_rndms = 0
     source_node = -1
 
-    latentPoints = np.random.normal(0, 1, (n, d))
-    targetPoints = np.random.normal(0, 1, (n, d))
+    latentPoints = normalize(np.random.normal(0, 1, (n, d)))
+    targetPoints = normalize(np.random.normal(0, 1, (n, d)))
 
     start = time.clock()
     G, client_nodes, server_nodes, annoy_index = createGraph(
                 n=n, d=d, latentPoints=latentPoints, targetPoints=targetPoints,
                 n_trees=60, n_nbrs=n_nbrs, n_rndms=n_rndms)
-    print('Created G bipartate graph. Elapsed time: ', time.clock() - start)
+    print('Created G bipartite graph. Elapsed time: ', time.clock() - start)
 
     H, M, F, parents_by_level, levels, best_gains = initializeHelperStructures(
                 client_nodes, server_nodes, max_level)
@@ -348,12 +348,12 @@ def main_nonObjectOriented():
 
 
 def main():
-    n = 1000
+    n = 50000
     d = 10
     # max_level = floor(sqrt(n) * sqrt(log(n))) #=735 for n=50000
     max_level = 4
-    n_nbrs = 10
-    n_rndms = 10
+    n_nbrs = 11
+    n_rndms = 0
     source_node = -1
 
     latentPoints = np.random.normal(0, 1, (n, d))
@@ -363,7 +363,7 @@ def main():
     oo = OOWrapper(
         n=n, d=d, latentPoints=latentPoints, targetPoints=targetPoints,
         n_trees=60, n_nbrs=n_nbrs, n_rndms=n_rndms, max_level=max_level)
-    print('Created G bipartate graph. Elapsed time: ', time.clock() - start)
+    print('Created G bipartite graph. Elapsed time: ', time.clock() - start)
 
     start = time.clock()
     oo.buildMatching()
@@ -395,5 +395,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
-    # main_nonObjectOriented()
+    #main()
+    main_nonObjectOriented()
