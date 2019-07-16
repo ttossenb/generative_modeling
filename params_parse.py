@@ -27,7 +27,7 @@ def heuristicCast(s):
 
     if "|" in s: # apply recursively to lists separated by "|"
         s_list = s.split("|")
-        return [tuple([heuristicCast(s2) for s2 in s_list])]
+        return tuple([heuristicCast(s2) for s2 in s_list])
 
     if s=="none":
         return None
