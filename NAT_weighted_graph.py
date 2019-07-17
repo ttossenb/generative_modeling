@@ -9,6 +9,8 @@ import directed_weighted_ES as ES
 from math import sqrt, log, floor
 from random import randint
 
+import autoencoder
+
 
 def normalize(a, order=2, axis=-1):
     a_norms = np.expand_dims(np.linalg.norm(a, order, axis), axis)
@@ -205,6 +207,15 @@ def addBatch(G, n, annoy_index, batch_indices, latentBatch, targetPoints, H, par
             F.add_edge(c, s)
 
 
+def pairwiseSquaredDistances(clients, servers):
+    cL2S = np.sum(clients ** 2, axis=-1)
+    sL2S = np.sum(servers ** 2, axis=-1)
+    cL2SM = np.tile(cL2S, (len(servers), 1))
+    sL2SM = np.tile(sL2S, (len(clients), 1))
+    squaredDistances = cL2SM + sL2SM.T - 2.0 * servers.dot(clients.T)
+    return squaredDistances.T
+
+
 def initializeHelperStructures(client_nodes, server_nodes, max_level):
     #initialize H before the clients are being added iteratively
     H = nx.DiGraph()
@@ -257,6 +268,17 @@ def evaluateMatching(M, n):
     print('Average weight of an edge in the matching: ', weight_of_matching / len(M.edges()))
 
 
+def matchingAsPermutation(F, n, client_nodes): #assumes that server_nodes == client_nodes + n
+    for c in client_nodes:
+        matching = np.zeros((n, ), dtype=int)
+        for c in client_nodes:
+            if F.out_degree[c] == 1:
+                matching[c] = list(F.successors(c))[0] - n
+            else:
+                matching[c] = np.random.random_integers(0, n-1)
+    return matching
+
+
 class OOWrapper:
     def __init__(self, n, d, latentPoints, targetPoints, n_trees, n_nbrs, n_rndms, max_level):
         self.n = n
@@ -267,6 +289,13 @@ class OOWrapper:
         self.n_nbrs = n_nbrs
         self.n_rndms = n_rndms
         self.max_level = max_level
+        self.G, self.client_nodes, self.server_nodes, self.annoy_index = createGraph(
+            n, d, latentPoints, targetPoints, n_trees, n_nbrs, n_rndms)
+        self.H, self.M, self.F, self.parents_by_level, self.levels, self.best_gains = initializeHelperStructures(
+            self.client_nodes, self.server_nodes, self.max_level)
+        self.buildMatching()
+        self.matching = matchingAsPermutation(self.F, self.n, self.client_nodes)
+        self.restart()
         self.G, self.client_nodes, self.server_nodes, self.annoy_index = createGraph(
             n, d, latentPoints, targetPoints, n_trees, n_nbrs, n_rndms)
         self.H, self.M, self.F, self.parents_by_level, self.levels, self.best_gains = initializeHelperStructures(
@@ -291,6 +320,13 @@ class OOWrapper:
             batch_indices, latentBatch,
             self.targetPoints, self.H, self.parents_by_level, self.levels, self.best_gains,
             self.M, self.F, self.max_level, self.n_nbrs, self.n_rndms)
+
+    def updateBatch(self, latentIndices, latentBatch):
+        self.latentPoints[latentIndices] = latentBatch
+        self.addBatch(latentIndices, latentBatch)
+        for c in latentIndices:
+            if self.M.out_degree[c] == 1:
+                matching[c] = list(M.successors(c))[0] - n
 
 
 # hopefully obsolete
@@ -348,7 +384,7 @@ def main_nonObjectOriented():
 
 
 def main():
-    n = 50000
+    n = 500
     d = 10
     # max_level = floor(sqrt(n) * sqrt(log(n))) #=735 for n=50000
     max_level = 4
