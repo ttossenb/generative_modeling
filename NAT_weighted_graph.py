@@ -9,8 +9,6 @@ import directed_weighted_ES as ES
 from math import sqrt, log, floor
 from random import randint
 
-import autoencoder
-
 
 def normalize(a, order=2, axis=-1):
     a_norms = np.expand_dims(np.linalg.norm(a, order, axis), axis)
@@ -25,24 +23,24 @@ def binMatrix(d):
     return binaries
 
 
-def createGraph(n, d, latentPoints, targetPoints, n_trees, n_nbrs, n_rndms):
-    #create AnnoyIndex in R^d
+def createAnnoyIndex(d, targetPoints, n_trees):
+    # create AnnoyIndex in R^d
     targetIndex = AnnoyIndex(d, metric='angular')
-    #add each of the target points
+    # add each of the target points
     for i in range(targetPoints.shape[0]):
         targetIndex.add_item(i, targetPoints[i])
 
-    #build the LSH-forest with the target points
+    # build the LSH-forest with the target points
     targetIndex.build(n_trees)
 
-    #save and load with memory map
+    # save and load with memory map
     targetIndex.save("LSHForest.ann")
     loadedIndex = AnnoyIndex(d, metric='angular')
     loadedIndex.load("LSHForest.ann")
+    return loadedIndex
 
-    #end1 = time.clock()
-    #start2 = time.clock()
 
+def createGraph(latentPoints, targetPoints, n_nbrs, n_rndms, loadedIndex):
     #find the closest neighbours for each latent point and their distances,
     #and also create the biadjacency sparse matrix of the desired bipartite graph
     #initialize with an empty sparse matrix
@@ -269,18 +267,17 @@ def evaluateMatching(M, n):
 
 
 def matchingAsPermutation(F, n, client_nodes): #assumes that server_nodes == client_nodes + n
+    matching = np.zeros((n, ), dtype=int)
     for c in client_nodes:
-        matching = np.zeros((n, ), dtype=int)
-        for c in client_nodes:
-            if F.out_degree[c] == 1:
-                matching[c] = list(F.successors(c))[0] - n
-            else:
-                matching[c] = np.random.random_integers(0, n-1)
+        if F.out_degree[c] == 1:
+            matching[c] = list(F.successors(c))[0] - n
+        else:
+            matching[c] = np.random.random_integers(0, n-1)
     return matching
 
 
 class OOWrapper:
-    def __init__(self, n, d, latentPoints, targetPoints, n_trees, n_nbrs, n_rndms, max_level):
+    def __init__(self, n, d, latentPoints, targetPoints, n_nbrs, n_rndms, max_level, n_trees=60):
         self.n = n
         self.d = d
         self.latentPoints = latentPoints
@@ -289,15 +286,16 @@ class OOWrapper:
         self.n_nbrs = n_nbrs
         self.n_rndms = n_rndms
         self.max_level = max_level
+        self.loadedIndex = createAnnoyIndex(self.d, self.targetPoints, self.n_trees)
         self.G, self.client_nodes, self.server_nodes, self.annoy_index = createGraph(
-            n, d, latentPoints, targetPoints, n_trees, n_nbrs, n_rndms)
+            self.latentPoints, self.targetPoints, self.n_nbrs, self.n_rndms, self.loadedIndex)
         self.H, self.M, self.F, self.parents_by_level, self.levels, self.best_gains = initializeHelperStructures(
             self.client_nodes, self.server_nodes, self.max_level)
         self.buildMatching()
         self.matching = matchingAsPermutation(self.F, self.n, self.client_nodes)
         self.restart()
         self.G, self.client_nodes, self.server_nodes, self.annoy_index = createGraph(
-            n, d, latentPoints, targetPoints, n_trees, n_nbrs, n_rndms)
+            self.latentPoints, self.targetPoints, self.n_nbrs, self.n_rndms, self.loadedIndex)
         self.H, self.M, self.F, self.parents_by_level, self.levels, self.best_gains = initializeHelperStructures(
             self.client_nodes, self.server_nodes, self.max_level)
 
@@ -326,7 +324,7 @@ class OOWrapper:
         self.addBatch(latentIndices, latentBatch)
         for c in latentIndices:
             if self.M.out_degree[c] == 1:
-                matching[c] = list(M.successors(c))[0] - n
+                self.matching[c] = list(self.M.successors(c))[0] - self.n
 
 
 # hopefully obsolete
@@ -337,15 +335,17 @@ def main_nonObjectOriented():
     max_level = 4
     n_nbrs = 11
     n_rndms = 0
+    n_trees = 60
     source_node = -1
 
     latentPoints = normalize(np.random.normal(0, 1, (n, d)))
     targetPoints = normalize(np.random.normal(0, 1, (n, d)))
 
     start = time.clock()
+    loadedIndex = createAnnoyIndex(d, targetPoints, n_trees)
     G, client_nodes, server_nodes, annoy_index = createGraph(
-                n=n, d=d, latentPoints=latentPoints, targetPoints=targetPoints,
-                n_trees=60, n_nbrs=n_nbrs, n_rndms=n_rndms)
+                latentPoints=latentPoints, targetPoints=targetPoints,
+                n_nbrs=n_nbrs, n_rndms=n_rndms, loadedIndex=loadedIndex)
     print('Created G bipartite graph. Elapsed time: ', time.clock() - start)
 
     H, M, F, parents_by_level, levels, best_gains = initializeHelperStructures(
