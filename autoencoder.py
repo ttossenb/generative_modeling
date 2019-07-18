@@ -351,13 +351,22 @@ def run(args, data):
         labelset = np.unique(labels)
         ratios_per_labels = {label: [] for label in labelset}
         ratios = []
+        successes = []
         confusion_matrix = np.zeros((10, 10), dtype=int)
+
+        # TODO what about tie-breaks?
+        def mode(x):
+            values, counts = np.unique(x, return_counts=True)
+            m = counts.argmax()
+            return values[m], counts[m]
 
         for i in range(inum):
             label = labels[i]
             distances = np.linalg.norm(z_mean - z_mean[i], axis=1)
             nearests = np.argsort(distances)[:numclose]
             nearest_labels = labels[nearests]
+            most_popular_label, cnt = mode(nearest_labels)
+            successes.append(most_popular_label == label)
             for n_l in nearest_labels:
                 confusion_matrix[label, n_l] += 1
             nr_of_same_label = sum(nearest_labels == label)
@@ -370,6 +379,7 @@ def run(args, data):
         print("global clustering: %f" % np.mean(np.array(ratios)))
         print("confusion:")
         print(confusion_matrix)
+        print("majority vote metric: %f" % (float(sum(map(int, successes))) / len(successes)))
 
 
     # save models
@@ -436,6 +446,16 @@ def build_models(args):
         ae = Model([inputs, nats], output)
     else:
         ae = Sequential([encoder, generator])
+
+    if args.zz:
+        # inverse_model = Sequential([generator, encoder])
+        z_inputs = K.random_normal(shape=(args.batch_size, args.latent_dim))
+        if args.sampling:
+            (z_prime, z_prime_mean, z_prime_log_var) = encoder(generator(z_inputs))
+        else:
+            z_prime_mean = encoder(generator(z_inputs))
+        loss_features["z_prime"] = z_prime_mean
+        loss_features["z_input"] = z_inputs
 
     modelDict = AttrDict({})
     modelDict.ae = ae
