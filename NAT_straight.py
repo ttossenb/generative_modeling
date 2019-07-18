@@ -46,6 +46,10 @@ class OOWrapper:
             s += np.linalg.norm(self.latentPoints[i] - self.targetPoints[self.matching[i]])
         return s
 
+    def restart(self):
+        # it's a no-op, dynamic algorithm rather than online.
+        pass
+
 
 def main():
     n = 1000

@@ -200,18 +200,18 @@ def run(args, data):
     n = len(x_train)
     d = args.latent_dim
 
-    print("creating bipartite graph and annoy index.")
-    natPositions, bipartite, annoyIndex = NAT_graph.buildServers(
-        n, args.latent_dim)
-    print("done.")
-    # natPositions = np.random.normal(0, 1, (n, d))
+    # natPositions = NAT_weighted_graph.normalize(np.random.normal(0, 1, (n, d)))
+    natPositions = np.random.normal(0, 1, (n, d))
 
     # latentPositions = np.zeros_like(natPositions) ; latentPositions.fill(np.nan)
     latentPositions = np.random.normal(0, 1, (n, d)) # not true, just placeholder
 
-    #oo = NAT_straight.OOWrapper(latentPoints=latentPositions, targetPoints=natPositions)
-    oo = NAT_weighted_graph.OOWrapper(n, d, latentPoints=latentPositions, targetPoints=natPositions, n_nbrs=11,
-                                      n_rndms=11, max_level=4)
+    use_toszi_algorithm = True
+    if use_toszi_algorithm:
+        oo = NAT_weighted_graph.OOWrapper(n, d, latentPoints=latentPositions, targetPoints=natPositions, n_nbrs=11,
+                                          n_rndms=11, max_level=4)
+    else:
+        oo = NAT_straight.OOWrapper(latentPoints=latentPositions, targetPoints=natPositions)
 
     matching_active = True # no warmup for matching, but warmup for nat_loss
     matching = np.arange(n, dtype=int) # hopefully will be overwritten before nat_loss_weight_variable>0 kicks in
@@ -267,9 +267,7 @@ def run(args, data):
             do_smart = True
             if do_smart:
                 oo.updateBatch(indices, currentLatentPositions)
-                print("epoch", epoch, "nat matching weight", oo.evaluateMatching())
                 matching = oo.matching
-                oo.restart()
 
             do_exact = False
             if do_exact:
@@ -290,6 +288,10 @@ def run(args, data):
                 matching = matching_approx
 
             # WARNING don't put functionality here, skipped if not matching_active.
+
+        assert do_smart, "this code only works with OOWrapper."
+        print("epoch", epoch, "nat matching weight", oo.evaluateMatching())
+        oo.restart()
 
         max_nr_of_points = 1000
         matchingTruncated = matching[:max_nr_of_points]

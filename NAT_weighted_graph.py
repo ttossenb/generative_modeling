@@ -25,7 +25,7 @@ def binMatrix(d):
 
 def createAnnoyIndex(d, targetPoints, n_trees):
     # create AnnoyIndex in R^d
-    targetIndex = AnnoyIndex(d, metric='angular')
+    targetIndex = AnnoyIndex(d, metric='euclidean')
     # add each of the target points
     for i in range(targetPoints.shape[0]):
         targetIndex.add_item(i, targetPoints[i])
@@ -35,7 +35,7 @@ def createAnnoyIndex(d, targetPoints, n_trees):
 
     # save and load with memory map
     targetIndex.save("LSHForest.ann")
-    loadedIndex = AnnoyIndex(d, metric='angular')
+    loadedIndex = AnnoyIndex(d, metric='euclidean')
     loadedIndex.load("LSHForest.ann")
     return loadedIndex
 
