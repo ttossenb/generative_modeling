@@ -211,7 +211,7 @@ def run(args, data):
 
     #oo = NAT_straight.OOWrapper(latentPoints=latentPositions, targetPoints=natPositions)
     oo = NAT_weighted_graph.OOWrapper(n, d, latentPoints=latentPositions, targetPoints=natPositions, n_nbrs=11,
-                                      n_rndms=0, max_level=4)
+                                      n_rndms=11, max_level=4)
 
     matching_active = True # no warmup for matching, but warmup for nat_loss
     matching = np.arange(n, dtype=int) # hopefully will be overwritten before nat_loss_weight_variable>0 kicks in
@@ -269,6 +269,7 @@ def run(args, data):
                 oo.updateBatch(indices, currentLatentPositions)
                 print("epoch", epoch, "nat matching weight", oo.evaluateMatching())
                 matching = oo.matching
+                oo.restart()
 
             do_exact = False
             if do_exact:
@@ -310,7 +311,6 @@ def run(args, data):
 
         fig, ax = plt.subplots(subplot_kw={'aspect': 'equal'})
 
-       
         colored = [[] for _ in range(10)]
 
         colors = ['blue', 'green', 'red', 'cyan', 'magenta', 'yellow', 'black', 'orange', 'teal', 'brown']
