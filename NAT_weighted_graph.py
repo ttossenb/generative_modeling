@@ -221,8 +221,6 @@ def initializeHelperStructures(client_nodes, server_nodes, max_level):
     M = nx.DiGraph()
     M.add_nodes_from(client_nodes)
     M.add_nodes_from(server_nodes)
-    #initialize F bipartate graph of forces
-    F = nx.DiGraph()
     #initialize parents, (node, level): SortedSet(parents of the node on the given level)
     parents_by_level = {}
     #for l in range(max_level + 2):
@@ -236,10 +234,10 @@ def initializeHelperStructures(client_nodes, server_nodes, max_level):
     #initialize levels
     levels = {}
     best_gains = {}
-    return H, M, F, parents_by_level, levels, best_gains
+    return H, M, parents_by_level, levels, best_gains
 
 
-def restart(G, H, parents_by_level, levels, best_gains, M, client_nodes, server_nodes, max_level, source_node):
+def clearStructures(G, H, parents_by_level, levels, best_gains, M, client_nodes, server_nodes, max_level, source_node):
     G.clear()
     H.clear()
     #for l in range(max_level + 2):
@@ -250,7 +248,6 @@ def restart(G, H, parents_by_level, levels, best_gains, M, client_nodes, server_
     for s in server_nodes:
         for l in range(max_level + 2):
             parents_by_level[(s, l)].clear()
-    initializeESGraph(H, parents_by_level, levels, best_gains, client_nodes, server_nodes, source_node)
     M.clear()
     M.add_nodes_from(client_nodes)
     M.add_nodes_from(server_nodes)
@@ -289,15 +286,13 @@ class OOWrapper:
         self.loadedIndex = createAnnoyIndex(self.d, self.targetPoints, self.n_trees)
         self.G, self.client_nodes, self.server_nodes, self.annoy_index = createGraph(
             self.latentPoints, self.targetPoints, self.n_nbrs, self.n_rndms, self.loadedIndex)
-        self.H, self.M, self.F, self.parents_by_level, self.levels, self.best_gains = initializeHelperStructures(
+        #initialize F bipartate graph of forces
+        self.F = nx.DiGraph()
+        self.H, self.M, self.parents_by_level, self.levels, self.best_gains = initializeHelperStructures(
             self.client_nodes, self.server_nodes, self.max_level)
         self.buildMatching()
         self.matching = matchingAsPermutation(self.F, self.n, self.client_nodes)
         self.restart()
-        self.G, self.client_nodes, self.server_nodes, self.annoy_index = createGraph(
-            self.latentPoints, self.targetPoints, self.n_nbrs, self.n_rndms, self.loadedIndex)
-        self.H, self.M, self.F, self.parents_by_level, self.levels, self.best_gains = initializeHelperStructures(
-            self.client_nodes, self.server_nodes, self.max_level)
 
     def buildMatching(self):
         createESGraph(
@@ -308,9 +303,15 @@ class OOWrapper:
         evaluateMatching(self.M, self.n)
 
     def restart(self):
-        restart(
+        clearStructures(
             self.G, self.H, self.parents_by_level, self.levels, self.best_gains,
             self.M, self.client_nodes, self.server_nodes, self.max_level, source_node=-1)
+        self.G, self.client_nodes, self.server_nodes, self.annoy_index = createGraph(
+            self.latentPoints, self.targetPoints, self.n_nbrs, self.n_rndms, self.loadedIndex)
+        self.H, self.M, self.parents_by_level, self.levels, self.best_gains = initializeHelperStructures(
+            self.client_nodes, self.server_nodes, self.max_level)
+        initializeESGraph(self.H, self.parents_by_level, self.levels, self.best_gains, self.client_nodes,
+                          self.server_nodes)
 
     def addBatch(self, batch_indices, latentBatch):
         addBatch(
@@ -348,7 +349,9 @@ def main_nonObjectOriented():
                 n_nbrs=n_nbrs, n_rndms=n_rndms, loadedIndex=loadedIndex)
     print('Created G bipartite graph. Elapsed time: ', time.clock() - start)
 
-    H, M, F, parents_by_level, levels, best_gains = initializeHelperStructures(
+    #initialize F bipartate graph of forces
+    F = nx.DiGraph()
+    H, M, parents_by_level, levels, best_gains = initializeHelperStructures(
                 client_nodes, server_nodes, max_level)
 
     start = time.clock()
@@ -358,7 +361,7 @@ def main_nonObjectOriented():
     evaluateMatching(M, n)
 
     start = time.clock()
-    restart(G, H, parents_by_level, levels, best_gains, M, client_nodes, server_nodes, max_level, source_node)
+    clearStructures(G, H, parents_by_level, levels, best_gains, M, client_nodes, server_nodes, max_level, source_node)
     print('Rebuilt ES graph. Elapsed time: ', time.clock() - start)
 
     #---simulate training by batches on an epoch---
