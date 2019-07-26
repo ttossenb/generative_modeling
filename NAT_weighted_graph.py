@@ -15,14 +15,6 @@ def normalize(a, order=2, axis=-1):
     return a / a_norms
 
 
-def binMatrix(d):
-    binaries = np.array([[0], [1]], dtype=int)
-    for i in range(1, d):
-        binaries = np.vstack((np.concatenate((np.zeros((2 ** i, 1), dtype=int), binaries), axis=-1),
-                              np.concatenate((np.ones((2 ** i, 1), dtype=int), binaries), axis=-1)))
-    return binaries
-
-
 def createAnnoyIndex(d, targetPoints, n_trees):
     # create AnnoyIndex in R^d
     targetIndex = AnnoyIndex(d, metric='euclidean')
@@ -43,8 +35,7 @@ def createAnnoyIndex(d, targetPoints, n_trees):
 def createGraph(latentPoints, targetPoints, n_nbrs, n_rndms, loadedIndex):
     #find the closest neighbours for each latent point and their distances,
     #and also create the biadjacency sparse matrix of the desired bipartite graph
-    #initialize with an empty sparse matrix
-    #B = coo_matrix((latentPoints.shape[0], targetPoints.shape[0]), dtype=np.float16)
+
     #initialize closeIndices and closeDistances
     closeIndices = np.zeros((latentPoints.shape[0], n_nbrs), dtype=int)
     closeDistances = np.zeros((latentPoints.shape[0], n_nbrs), dtype=np.float16)
@@ -63,58 +54,15 @@ def createGraph(latentPoints, targetPoints, n_nbrs, n_rndms, loadedIndex):
             G.add_edge(i, latentPoints.shape[0] + tempRandInt,
                        weight=np.linalg.norm(targetPoints[tempRandInt] - latentPoints[i])) #might add the same edge twice
 
-    #end2 = time.clock()
-    #start3 = time.clock()
-
-    #create the biadjacency matrix
-    #arg1=data=(data, (rows, cols))
-    #B = coo_matrix((closeDistances.flatten(), (np.repeat(np.arange(latentPoints.shape[0]), n_nbrs), closeIndices.flatten())))
-
-    #create the bipartite graph in networkx
-    #G = bipartite.from_biadjacency_matrix(B)
-    #G.add_nodes_from(range(n, n + (2 ** d) * k), )
     print(len(set(G)))
 
     client_nodes = SortedSet(range(latentPoints.shape[0]))
     server_nodes = SortedSet(range(latentPoints.shape[0], latentPoints.shape[0] + targetPoints.shape[0]))
 
-    #client_nodes = SortedSet({n for n, d in G.nodes(data=True) if d['bipartite']==0}) #0 .. n-1
-    #server_nodes = SortedSet(set(G) - client_nodes)
-
-    #end3 = time.clock()
-
-    #print("Elapsed time during the initialization of the targets: ", end1-start1)
-    #print("Elapsed time during the initialization of the LSH-forest: ", end2-start2)
-    #print("Elapsed time during the creation of the bipartite graph: ", end3-start3)
-
-    return G, client_nodes, server_nodes, loadedIndex
+    return G, client_nodes, server_nodes
 
 
-def createESGraph(G, H, parents_by_level, levels, best_gains, M, F, client_nodes, server_nodes, max_level, source_node=-1):
-    #H = directed ES graph
-    #n = len(client_nodes)
-
-    H.add_node(source_node)
-    levels[source_node] = 0
-    H.add_nodes_from(client_nodes)
-    for c in client_nodes:
-        levels[c] = 1
-    H.add_nodes_from(server_nodes)
-    for s in server_nodes:
-        levels[s] = 1
-
-    #connect the source node to the client nodes
-    for c in client_nodes:
-        H.add_edge(source_node, c, weight=0)
-        parents_by_level[(c, 0)].add((source_node, 0))
-        #best_gains[c] = 0
-
-    #connect the source node to the server nodes
-    for s in server_nodes:
-        H.add_edge(source_node, s, weight=0)
-        parents_by_level[(s, 0)].add((source_node, 0))
-        #best_gains[s] = 0
-
+def addAllClients(G, H, parents_by_level, levels, best_gains, M, F, client_nodes, server_nodes, max_level, source_node=-1):
     #add all the clients 1 by 1 while maintaining the ES structure
     #also modify M to be a maximal matching
     clients_to_add = client_nodes
@@ -150,52 +98,7 @@ def initializeESGraph(H, parents_by_level, levels, best_gains, client_nodes, ser
         #best_gains[s] = 0
 
 
-def deleteBatchOfClients(clients_to_delete, H, parents_by_level, levels, best_gains, M, max_level, source_node=-1):
-    #clients_to_delete = sorted set of the indices of the batch elements to delete
-    ES.deleteClients(clients_to_delete, H, M, source_node, max_level)
-
-
-def updateBatch(G, n, annoy_index, batch_indices, latentBatch, targetPoints, H, parents_by_level, levels, best_gains, M, max_level, n_nbrs, n_rndms=0, source_node=-1):
-    #latentBatch=latentPoints["batch_indices as np.array"] (must be sorted)
-    #delete the nodes (and the edges from these nodes)
-    deleteBatchOfClients(batch_indices, H, parents_by_level, levels, best_gains, M, max_level)
-    G.remove_nodes_from(batch_indices)
-    #add back the nodes
-    G.add_nodes_from(batch_indices)
-    #initialize closeIndices and closeDistances
-    closeIndices = np.zeros((latentBatch.shape[0], n_nbrs), dtype=int)
-    closeDistances = np.zeros((latentBatch.shape[0], n_nbrs), dtype=np.float16)
-    #add new weighted edges to G
-    for i in range(len(batch_indices)):
-        (closeIndices[i], closeDistances[i]) = annoy_index.get_nns_by_vector(latentBatch[i], n_nbrs, include_distances=True)
-        for j in range(n_nbrs):
-            G.add_edge(batch_indices[i], closeIndices[i][j] + n, weight=closeDistances[i][j])
-        for j in range(n_rndms):
-            tempRandInt = randint(0, n-1) #n as number of SERVER nodes, might need to change it!!!
-            G.add_edge(batch_indices[i], n + tempRandInt,
-                       weight=np.linalg.norm(latentBatch[i] - targetPoints[tempRandInt])) #might add the same edge twice
-    ES.addClients(G, batch_indices, H, M, source_node, max_level)
-
-
-def addBatch(G, n, annoy_index, batch_indices, latentBatch, targetPoints, H, parents_by_level, levels, best_gains, M, F, max_level, n_nbrs, n_rndms=0, source_node=-1):
-    #latentBatch=latentPoints["batch_indices as np.array"] (must be sorted)
-    #delete the nodes (and the edges from these nodes)
-    #G.remove_nodes_from(batch_indices)
-    #add back the nodes
-    batch_indices = SortedSet(batch_indices)
-    G.add_nodes_from(batch_indices)
-    #initialize closeIndices and closeDistances
-    closeIndices = np.zeros((latentBatch.shape[0], n_nbrs), dtype=int)
-    closeDistances = np.zeros((latentBatch.shape[0], n_nbrs), dtype=np.float16)
-    #add new weighted edges to G
-    for i in range(len(batch_indices)):
-        (closeIndices[i], closeDistances[i]) = annoy_index.get_nns_by_vector(latentBatch[i], n_nbrs, include_distances=True)
-        for j in range(n_nbrs):
-            G.add_edge(batch_indices[i], closeIndices[i][j] + n, weight=closeDistances[i][j])
-        for j in range(n_rndms):
-            tempRandInt = randint(0, n-1) #n as the number of SERVER nodes, might need to change it!!!
-            G.add_edge(batch_indices[i], n + tempRandInt,
-                       weight=np.linalg.norm(latentBatch[i] - targetPoints[tempRandInt])) #might add the same edge twice
+def addBatchOfClients(G, batch_indices, H, parents_by_level, levels, best_gains, M, F, max_level, source_node=-1):
     ES.addClients(G, batch_indices, H, parents_by_level, levels, best_gains, M, source_node, max_level)
     #readjust F
     for c in batch_indices:
@@ -273,6 +176,28 @@ def matchingAsPermutation(F, n, client_nodes): #assumes that server_nodes == cli
     return matching
 
 
+def calculateWeights(G, n, loadedIndex, batch_indices, latentBatch, targetPoints, n_nbrs, n_rndms, matching, fidelity=1):
+    #initialize closeIndices and closeDistances
+    closeIndices = np.zeros((n, n_nbrs), dtype=int)
+    closeDistances = np.zeros((n, n_nbrs), dtype=np.float16)
+
+    for i in range(len(batch_indices)):
+        (closeIndices[i], closeDistances[i]) = loadedIndex.get_nns_by_vector(latentBatch[i], n_nbrs, include_distances=True)
+        for j in range(n_nbrs):
+            if matching[batch_indices[i]] == closeIndices[i, j]:
+                wt = fidelity * closeDistances[i, j]
+            else:
+                wt = closeDistances[i, j]
+            G.add_edge(batch_indices[i], n + closeIndices[i, j], weight=wt)
+        for j in range(n_rndms):
+            tempRandInt = randint(0, n - 1)
+            if matching[batch_indices[i]] == tempRandInt:
+                wt = fidelity * np.linalg.norm(targetPoints[tempRandInt] - latentBatch[i])
+            else:
+                wt = np.linalg.norm(targetPoints[tempRandInt] - latentBatch[i])
+            G.add_edge(batch_indices[i], n + tempRandInt, weight=wt) #might add the same edge twice
+
+
 class OOWrapper:
     def __init__(self, n, d, latentPoints, targetPoints, n_nbrs, n_rndms, max_level, n_trees=60):
         self.n = n
@@ -283,19 +208,22 @@ class OOWrapper:
         self.n_nbrs = n_nbrs
         self.n_rndms = n_rndms
         self.max_level = max_level
-        self.loadedIndex = createAnnoyIndex(self.d, self.targetPoints, self.n_trees)
-        self.G, self.client_nodes, self.server_nodes, self.annoy_index = createGraph(
-            self.latentPoints, self.targetPoints, self.n_nbrs, self.n_rndms, self.loadedIndex)
+        self.annoy_index = createAnnoyIndex(self.d, self.targetPoints, self.n_trees)
+        self.G, self.client_nodes, self.server_nodes = createGraph(
+            self.latentPoints, self.targetPoints, self.n_nbrs, self.n_rndms, self.annoy_index)
         #initialize F bipartate graph of forces
         self.F = nx.DiGraph()
         self.H, self.M, self.parents_by_level, self.levels, self.best_gains = initializeHelperStructures(
             self.client_nodes, self.server_nodes, self.max_level)
+        initializeESGraph(self.H, self.parents_by_level, self.levels, self.best_gains, self.client_nodes,
+                          self.server_nodes)
         self.buildMatching()
+        self.evaluateMatching()
         self.matching = matchingAsPermutation(self.F, self.n, self.client_nodes)
         self.restart()
 
     def buildMatching(self):
-        createESGraph(
+        addAllClients(
             self.G, self.H, self.parents_by_level, self.levels, self.best_gains,
             self.M, self.F, self.client_nodes, self.server_nodes, self.max_level)
 
@@ -306,19 +234,21 @@ class OOWrapper:
         clearStructures(
             self.G, self.H, self.parents_by_level, self.levels, self.best_gains,
             self.M, self.client_nodes, self.server_nodes, self.max_level, source_node=-1)
-        self.G, self.client_nodes, self.server_nodes, self.annoy_index = createGraph(
-            self.latentPoints, self.targetPoints, self.n_nbrs, self.n_rndms, self.loadedIndex)
+        self.G, self.client_nodes, self.server_nodes = createGraph(
+            self.latentPoints, self.targetPoints, self.n_nbrs, self.n_rndms, self.annoy_index)
         self.H, self.M, self.parents_by_level, self.levels, self.best_gains = initializeHelperStructures(
             self.client_nodes, self.server_nodes, self.max_level)
         initializeESGraph(self.H, self.parents_by_level, self.levels, self.best_gains, self.client_nodes,
                           self.server_nodes)
 
-    def addBatch(self, batch_indices, latentBatch):
-        addBatch(
-            self.G, self.n, self.annoy_index,
-            batch_indices, latentBatch,
-            self.targetPoints, self.H, self.parents_by_level, self.levels, self.best_gains,
-            self.M, self.F, self.max_level, self.n_nbrs, self.n_rndms)
+    def addBatch(self, batch_indices, latentBatch, fidelity=1):
+        calculateWeights(self.G, self.n, self.annoy_index,
+                         batch_indices, latentBatch,
+                         self.targetPoints, self.n_nbrs, self.n_rndms, self.matching,
+                         fidelity)
+        addBatchOfClients(self.G,
+                          batch_indices,
+                          self.H, self.parents_by_level, self.levels, self.best_gains, self.M, self.F, self.max_level)
 
     def updateBatch(self, latentIndices, latentBatch):
         self.latentPoints[latentIndices] = latentBatch
@@ -343,10 +273,10 @@ def main_nonObjectOriented():
     targetPoints = normalize(np.random.normal(0, 1, (n, d)))
 
     start = time.clock()
-    loadedIndex = createAnnoyIndex(d, targetPoints, n_trees)
-    G, client_nodes, server_nodes, annoy_index = createGraph(
+    annoy_index = createAnnoyIndex(d, targetPoints, n_trees)
+    G, client_nodes, server_nodes = createGraph(
                 latentPoints=latentPoints, targetPoints=targetPoints,
-                n_nbrs=n_nbrs, n_rndms=n_rndms, loadedIndex=loadedIndex)
+                n_nbrs=n_nbrs, n_rndms=n_rndms, loadedIndex=annoy_index)
     print('Created G bipartite graph. Elapsed time: ', time.clock() - start)
 
     #initialize F bipartate graph of forces
@@ -355,7 +285,7 @@ def main_nonObjectOriented():
                 client_nodes, server_nodes, max_level)
 
     start = time.clock()
-    createESGraph(G, H, parents_by_level, levels, best_gains, M, F, client_nodes, server_nodes, max_level)
+    addAllClients(G, H, parents_by_level, levels, best_gains, M, F, client_nodes, server_nodes, max_level)
     print('Created the initial ES graph. Elapsed time: ', time.clock() - start)
 
     evaluateMatching(M, n)
@@ -387,7 +317,7 @@ def main_nonObjectOriented():
 
 
 def main():
-    n = 500
+    n = 5000
     d = 10
     # max_level = floor(sqrt(n) * sqrt(log(n))) #=735 for n=50000
     max_level = 4
@@ -416,16 +346,21 @@ def main():
     oo.restart()
     print('Rebuilt ES graph. Elapsed time: ', time.clock() - start)
 
+    oo.buildMatching()
+    oo.evaluateMatching()
+    oo.restart()
+
     #---simulate training by batches on an epoch---
     batch_size = 200
     start = time.clock()
     for i in range(n // batch_size):
         print(i)
         batch_indices = range(i * batch_size, (i+1) * batch_size)
-        newLatentBatch = np.random.normal(0, 1, size=(batch_size, d))
-        latentBatch = latentPoints[i * batch_size : (i+1) * batch_size]
-        latentBatch[:] = newLatentBatch
-        oo.addBatch(batch_indices, latentBatch)
+        #newLatentBatch = np.random.normal(0, 1, size=(batch_size, d))
+        #latentBatch = latentPoints[i * batch_size : (i+1) * batch_size]
+        #latentBatch[:] = newLatentBatch
+        #oo.updateBatch(batch_indices, latentBatch)
+        oo.updateBatch(batch_indices, latentPoints[batch_indices])
         if i == n // batch_size // 2:
             print("At halftime:")
             oo.evaluateMatching()
