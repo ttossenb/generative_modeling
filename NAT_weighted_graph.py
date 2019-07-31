@@ -250,9 +250,9 @@ class OOWrapper:
                           batch_indices,
                           self.H, self.parents_by_level, self.levels, self.best_gains, self.M, self.F, self.max_level)
 
-    def updateBatch(self, latentIndices, latentBatch):
+    def updateBatch(self, latentIndices, latentBatch, fidelity=1):
         self.latentPoints[latentIndices] = latentBatch
-        self.addBatch(latentIndices, latentBatch)
+        self.addBatch(latentIndices, latentBatch, fidelity)
         for c in latentIndices:
             if self.M.out_degree[c] == 1:
                 self.matching[c] = list(self.M.successors(c))[0] - self.n

@@ -266,7 +266,7 @@ def run(args, data):
 
             do_smart = True
             if do_smart:
-                oo.updateBatch(indices, currentLatentPositions)
+                oo.updateBatch(indices, currentLatentPositions, fidelity=0.7)
                 matching = oo.matching
 
             do_exact = False
