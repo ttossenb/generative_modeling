@@ -61,8 +61,8 @@ def grid(r, n):
 with tf.Session() as sess:
     sqrt_k = int(np.sqrt(k)) ; assert sqrt_k * sqrt_k == k
     means = tf.Variable(grid(3, sqrt_k).astype(np.float32))
-    means = tf.Variable(tf.random.normal(k, d))
-    scales =  tf.Variable(tf.ones(k, d))
+    means = tf.Variable(np.random.normal(size=(k, d)).astype(np.float32))
+    scales =  tf.Variable(np.ones((k, d)).astype(np.float32))
 
     components = [tfd.MultivariateNormalDiag(loc=means[i], scale_diag=scales[i]) for i in range(k)]
 
@@ -75,7 +75,7 @@ with tf.Session() as sess:
     sess.run(init)
 
     prior = tfd.MultivariateNormalDiag(loc=np.zeros((d, ), dtype=np.float32), scale_diag=np.ones((d, ), dtype=np.float32))
-    n = 10000
+    n = 1000
     samples = dist.sample(n)
     kl = tf.reduce_mean(dist.log_prob(samples) - prior.log_prob(samples))
     # kl = dist.kl_divergence(prior) # unimplemented for mixtures.
