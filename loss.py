@@ -44,6 +44,9 @@ def loss_factory(loss_names, args, loss_features=None, combine_with_weights=True
     def nat_loss(x, x_decoded):
         return K.mean(K.square(loss_features.z_mean - loss_features.z_nat))
 
+    def nat_loss_toroidal(x, x_decoded):
+        return K.mean(K.square(K.abs(- K.abs(K.abs(loss_features.z_mean - loss_features.z_nat) - 0.5) + 0.5)))
+
     def zz_loss(x, x_decoded):
         return K.mean(K.square(loss_features.z_input - loss_features.z_prime))
 

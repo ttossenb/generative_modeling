@@ -171,7 +171,10 @@ def run(args, data):
         loss_names, args, loss_features, combine_with_weights=True)
 
     nat_loss_weight_variable = K.variable(0.0)
-    nat_loss_tensor = nat_loss_weight_variable * K.mean(K.square(loss_features.z_mean - loss_features.z_nat))
+    if toroidal:
+        nat_loss_tensor = nat_loss_weight_variable * K.mean(K.square(K.abs(- K.abs(K.abs(loss_features.z_mean - loss_features.z_nat) - 0.5) + 0.5)))
+    else:
+        nat_loss_tensor = nat_loss_weight_variable * K.mean(K.square(loss_features.z_mean - loss_features.z_nat))
     def nat_loss(x, x_decoded):
         return nat_loss_tensor
     def losses_with_nat(x, x_decoded):
@@ -213,7 +216,7 @@ def run(args, data):
     use_toszi_algorithm = True
     if use_toszi_algorithm:
         oo = NAT_weighted_graph.OOWrapper(n, d, latentPoints=latentPositions, targetPoints=natPositions, n_nbrs=11,
-                                          n_rndms=11, max_level=4)
+                                          n_rndms=11, max_level=6)
     else:
         oo = NAT_straight.OOWrapper(latentPoints=latentPositions, targetPoints=natPositions)
 
