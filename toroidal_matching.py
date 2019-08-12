@@ -16,22 +16,31 @@ def normalize(a, order=2, axis=-1):
 
 
 def generateTargets(n, d):
-    return np.random.normal(0, 1, (n, d))
+    return 2 * np.random.random((n, d)) - 1
+
+
+def projectToTorus(point):
+    d = point.shape[0]
+    projectedPoint = np.zeros(2 * d)
+    for i in range(d):
+        projectedPoint[2*i] = np.cos(np.pi * point[i])
+        projectedPoint[2*i+1] = np.sin(np.pi * point[i])
+    return projectedPoint
 
 
 def createAnnoyIndex(d, targetPoints, n_trees):
-    # create AnnoyIndex in R^d
-    targetIndex = AnnoyIndex(d, metric='euclidean')
-    # add each of the target points
+    #create AnnoyIndex in R^(2*d)
+    targetIndex = AnnoyIndex(2*d, metric='euclidean')
+    #add each of the projected target points
     for i in range(targetPoints.shape[0]):
-        targetIndex.add_item(i, targetPoints[i])
+        targetIndex.add_item(i, projectToTorus(targetPoints[i]))
 
-    # build the LSH-forest with the target points
+    #build the LSH-forest with the target points
     targetIndex.build(n_trees)
 
-    # save and load with memory map
+    #save and load with memory map
     targetIndex.save("LSHForest.ann")
-    loadedIndex = AnnoyIndex(d, metric='euclidean')
+    loadedIndex = AnnoyIndex(2*d, metric='euclidean')
     loadedIndex.load("LSHForest.ann")
     return loadedIndex
 
@@ -50,13 +59,13 @@ def createGraph(latentPoints, targetPoints, n_nbrs, n_rndms, loadedIndex):
     G.add_nodes_from(range(latentPoints.shape[0], latentPoints.shape[0] + targetPoints.shape[0]), bipartite=1)
 
     for i in range(latentPoints.shape[0]):
-        (closeIndices[i], closeDistances[i]) = loadedIndex.get_nns_by_vector(latentPoints[i], n_nbrs, include_distances=True)
+        (closeIndices[i], closeDistances[i]) = loadedIndex.get_nns_by_vector(projectToTorus(latentPoints[i]), n_nbrs, include_distances=True)
         for j in range(n_nbrs):
             G.add_edge(i, latentPoints.shape[0] + closeIndices[i, j], weight=closeDistances[i, j])
         for j in range(n_rndms):
             tempRandInt = randint(0, targetPoints.shape[0] - 1)
             G.add_edge(i, latentPoints.shape[0] + tempRandInt,
-                       weight=np.linalg.norm(targetPoints[tempRandInt] - latentPoints[i])) #might add the same edge twice
+                       weight=np.linalg.norm(projectToTorus(targetPoints[tempRandInt]) - projectToTorus(latentPoints[i]))) #might add the same edge twice
 
     print(len(set(G)))
 
@@ -186,7 +195,7 @@ def calculateWeights(G, n, loadedIndex, batch_indices, latentBatch, targetPoints
     closeDistances = np.zeros((n, n_nbrs), dtype=np.float16)
 
     for i in range(len(batch_indices)):
-        (closeIndices[i], closeDistances[i]) = loadedIndex.get_nns_by_vector(latentBatch[i], n_nbrs, include_distances=True)
+        (closeIndices[i], closeDistances[i]) = loadedIndex.get_nns_by_vector(projectToTorus(latentBatch[i]), n_nbrs, include_distances=True)
         for j in range(n_nbrs):
             if matching[batch_indices[i]] == closeIndices[i, j]:
                 wt = fidelity * closeDistances[i, j]
@@ -196,9 +205,9 @@ def calculateWeights(G, n, loadedIndex, batch_indices, latentBatch, targetPoints
         for j in range(n_rndms):
             tempRandInt = randint(0, n - 1)
             if matching[batch_indices[i]] == tempRandInt:
-                wt = fidelity * np.linalg.norm(targetPoints[tempRandInt] - latentBatch[i])
+                wt = fidelity * np.linalg.norm(projectToTorus(targetPoints[tempRandInt]) - projectToTorus(latentBatch[i]))
             else:
-                wt = np.linalg.norm(targetPoints[tempRandInt] - latentBatch[i])
+                wt = np.linalg.norm(projectToTorus(targetPoints[tempRandInt]) - projectToTorus(latentBatch[i]))
             G.add_edge(batch_indices[i], n + tempRandInt, weight=wt) #might add the same edge twice
 
 
@@ -262,66 +271,8 @@ class OOWrapper:
                 self.matching[c] = list(self.M.successors(c))[0] - self.n
 
 
-# hopefully obsolete
-def main_nonObjectOriented():
-    n = 50000
-    d = 10
-    # max_level = floor(sqrt(n) * sqrt(log(n))) #=735 for n=50000
-    max_level = 4
-    n_nbrs = 11
-    n_rndms = 0
-    n_trees = 60
-    source_node = -1
-
-    latentPoints = normalize(np.random.normal(0, 1, (n, d)))
-    targetPoints = normalize(np.random.normal(0, 1, (n, d)))
-
-    start = time.clock()
-    annoy_index = createAnnoyIndex(d, targetPoints, n_trees)
-    G, client_nodes, server_nodes = createGraph(
-                latentPoints=latentPoints, targetPoints=targetPoints,
-                n_nbrs=n_nbrs, n_rndms=n_rndms, loadedIndex=annoy_index)
-    print('Created G bipartite graph. Elapsed time: ', time.clock() - start)
-
-    #initialize F bipartate graph of forces
-    F = nx.DiGraph()
-    H, M, parents_by_level, levels, best_gains = initializeHelperStructures(
-                client_nodes, server_nodes, max_level)
-
-    start = time.clock()
-    addAllClients(G, H, parents_by_level, levels, best_gains, M, F, client_nodes, server_nodes, max_level)
-    print('Created the initial ES graph. Elapsed time: ', time.clock() - start)
-
-    evaluateMatching(M, n)
-
-    start = time.clock()
-    clearStructures(G, H, parents_by_level, levels, best_gains, M, client_nodes, server_nodes, max_level, source_node)
-    print('Rebuilt ES graph. Elapsed time: ', time.clock() - start)
-
-    #---simulate training by batches on an epoch---
-    batch_size = 200
-    start = time.clock()
-    for i in range(n // batch_size):
-        print(i)
-        batch_indices = range(i * batch_size, (i+1) * batch_size)
-        newLatentBatch = np.random.normal(0, 1, size=(batch_size, d))
-        latentBatch = latentPoints[i * batch_size : (i+1) * batch_size]
-        latentBatch[:] = newLatentBatch
-        addBatch(
-            G, n, annoy_index, batch_indices, latentBatch, targetPoints,
-            H, parents_by_level, levels, best_gains,
-            M, F, max_level, n_nbrs=n_nbrs, n_rndms=n_rndms)
-        if i == n // batch_size // 2:
-            print("At halftime:")
-            evaluateMatching(M, n)
-
-    print('Modified on one epoch. Elapsed time: ', time.clock() - start)
-
-    evaluateMatching(M, n)
-
-
 def main():
-    n = 50000
+    n = 5000
     d = 10
     # max_level = floor(sqrt(n) * sqrt(log(n))) #=735 for n=50000
     max_level = 4
@@ -329,10 +280,8 @@ def main():
     n_rndms = 0
     source_node = -1
 
-    #latentPoints = normalize(np.random.normal(0, 1, (n, d)))
-    #targetPoints = normalize(np.random.normal(0, 1, (n, d)))
-    latentPoints = np.random.normal(0, 1, (n, d))
-    targetPoints = np.random.normal(0, 1, (n, d))
+    latentPoints = 2 * np.random.random((n, d)) - 1
+    targetPoints = 2 * np.random.random((n, d)) - 1
 
     start = time.clock()
     oo = OOWrapper(

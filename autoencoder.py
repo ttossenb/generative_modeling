@@ -22,7 +22,11 @@ import callbacks
 
 from networks import dense, conv
 
-import NAT_weighted_graph
+toroidal = True
+if toroidal: #not the most elegant solution...
+    import toroidal_matching as NAT_weighted_graph
+else:
+    import NAT_weighted_graph
 import NAT_straight
 import NAT_graph # just for NAT_graph.buildServers(), mostly obsoleted.
 
@@ -201,10 +205,10 @@ def run(args, data):
     d = args.latent_dim
 
     # natPositions = NAT_weighted_graph.normalize(np.random.normal(0, 1, (n, d)))
-    natPositions = np.random.normal(0, 1, (n, d))
+    natPositions = NAT_weighted_graph.generateTargets(n, d)
 
     # latentPositions = np.zeros_like(natPositions) ; latentPositions.fill(np.nan)
-    latentPositions = np.random.normal(0, 1, (n, d)) # not true, just placeholder
+    latentPositions = NAT_weighted_graph.generateTargets(n, d) # not true, just placeholder
 
     use_toszi_algorithm = True
     if use_toszi_algorithm:
@@ -266,7 +270,7 @@ def run(args, data):
 
             do_smart = True
             if do_smart:
-                oo.updateBatch(indices, currentLatentPositions, fidelity=0.7)
+                oo.updateBatch(indices, currentLatentPositions, fidelity=0.4)
                 matching = oo.matching
 
             do_exact = False
